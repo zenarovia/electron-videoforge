@@ -73,14 +73,14 @@ export async function submitImages(prompts, imageModel, session) {
   return res.json(); // { jobs: [{index, jobId, status}] }
 }
 
-export async function checkJobs(jobIds, session) {
+export async function checkJobs(jobs, session) {
   const res = await fetch(`${BASE}/check-jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jobIds, session }),
+    body: JSON.stringify({ jobs, session }),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json(); // { results: [{index, jobId, status, url}], allDone, completedCount }
+  return res.json();
 }
 
 export async function submitAnimations(imageUrls, animatedSceneIndexes, motionPrompt, videoModel, session) {

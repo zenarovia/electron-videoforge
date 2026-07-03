@@ -481,27 +481,27 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
   const handleGenerateImages = () => {
     setGenerating(true);
-    setImageProgress(new Array(8).fill("pending"));
+    setImageProgress(new Array(8).fill("IN_QUEUE"));
 
     submitImages(prompts, imageModel, session)
       .then(data => {
-        const jobIds = data.jobs.map(j => j.jobId);
-        setImageJobIds(jobIds);
+        const jobs = data.jobs; // [{index, requestId, endpoint, status}]
+        setImageJobIds(jobs);
 
-        // Start polling every 3 seconds
+        // Start polling every 4 seconds
         pollRef.current = setInterval(async () => {
           try {
-            const result = await checkJobs(jobIds, session);
-            const newImages = [...(images.length ? images : new Array(8).fill(null))];
-            const newProgress = [...imageProgress];
+            const result = await checkJobs(jobs, session);
+            const newImages = new Array(8).fill(null).map((_, i) => images[i] || null);
+            const newProgress = new Array(8).fill("IN_QUEUE");
 
             result.results.forEach(r => {
               newProgress[r.index] = r.status;
-              if (r.status === "completed" && r.url) newImages[r.index] = r.url;
+              if (r.status === "COMPLETED" && r.url) newImages[r.index] = r.url;
             });
 
             setImageProgress(newProgress);
-            setImages(newImages.filter(Boolean).length ? newImages : images);
+            setImages(newImages);
 
             if (result.allDone) {
               clearInterval(pollRef.current);
@@ -513,7 +513,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
             setGenerating(false);
             alert("Image polling error: " + err.message);
           }
-        }, 3000);
+        }, 4000);
       })
       .catch(err => {
         setGenerating(false);
@@ -579,26 +579,24 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
     submitAnimations(images, animatedList, motionPrompt, videoModel, session)
       .then(data => {
-        const jobMap = {};
-        data.jobs.forEach(j => { jobMap[j.sceneIndex] = j.jobId; });
-        setAnimationJobIds(jobMap);
+        const jobs = data.jobs; // [{sceneIndex, requestId, endpoint, status}]
+        setAnimationJobIds(jobs);
 
         const initialProgress = {};
-        animatedList.forEach(idx => { initialProgress[idx] = "pending"; });
+        animatedList.forEach(idx => { initialProgress[idx] = "IN_QUEUE"; });
         setAnimationProgress(initialProgress);
 
-        // Poll every 5 seconds for animation completion
+        // Poll every 6 seconds for animation completion
         animPollRef.current = setInterval(async () => {
           try {
-            const jobIds = animatedList.map(idx => jobMap[idx]);
-            const result = await checkJobs(jobIds, session);
+            const result = await checkJobs(jobs, session);
             const newUrls = { ...animationUrls };
             const newProgress = { ...animationProgress };
 
-            result.results.forEach((r, i) => {
-              const sceneIdx = animatedList[i];
+            result.results.forEach((r) => {
+              const sceneIdx = r.sceneIndex !== undefined ? r.sceneIndex : r.index;
               newProgress[sceneIdx] = r.status;
-              if (r.status === "completed" && r.url) newUrls[sceneIdx] = r.url;
+              if (r.status === "COMPLETED" && r.url) newUrls[sceneIdx] = r.url;
             });
 
             setAnimationProgress(newProgress);
@@ -615,7 +613,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
             setAnimating(false);
             alert("Animation polling error: " + err.message);
           }
-        }, 5000);
+        }, 6000);
       })
       .catch(err => {
         setAnimating(false);
@@ -1070,7 +1068,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               <button onClick={() => setStep(needsTranslation ? 2 : 1)} style={ghostBtn}>← Back</button>
               <button onClick={handleGenerateImages} disabled={generating} style={primaryBtn(generating)}>
                 {generating
-                  ? `Generating... ${imageProgress.filter(s => s === "completed").length}/8 ready`
+                  ? `Generating... ${imageProgress.filter(s => s === "COMPLETED").length}/8 ready`
                   : "Generate All 8 Images →"}
               </button>
               {generating && (
@@ -1155,10 +1153,10 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                     {!hasImage && (
                       <div style={{ width: "100%", aspectRatio: "9/16", borderRadius: "10px", border: "2px dashed #2A2D3A", background: "#1A1D27", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                         <div style={{ fontSize: "20px" }}>
-                          {sceneStatus === "failed" ? "✗" : "⏳"}
+                          {sceneStatus === "FAILED" ? "✗" : "⏳"}
                         </div>
                         <div style={{ fontSize: "10px", color: "#4B5563", textAlign: "center" }}>
-                          {sceneStatus === "failed" ? "Failed" : sceneStatus === "processing" ? "Generating..." : "Waiting..."}
+                          {sceneStatus === "FAILED" ? "Failed" : sceneStatus === "IN_PROGRESS" ? "Generating..." : "In queue..."}
                         </div>
                       </div>
                     )}
