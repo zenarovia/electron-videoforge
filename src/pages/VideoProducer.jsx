@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { translateScript, generatePrompts, generateImages, animateScene, checkCost, saveToAirtable } from "../lib/api";
+import { useState, useEffect, useRef } from "react";
+import { translateScript, generatePrompts, submitImages, checkJobs, submitAnimations, checkCost, saveToAirtable } from "../lib/api";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -399,7 +399,12 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const [showModelBrowser, setShowModelBrowser] = useState(null); // "image" | "video" | null
   const [costPreview, setCostPreview] = useState(null);
   const [checkingCost, setCheckingCost] = useState(false);
-  const [animationUrls, setAnimationUrls] = useState({});
+  const [imageJobIds, setImageJobIds] = useState([]);
+  const [imageProgress, setImageProgress] = useState([]); // per-scene status
+  const [animationJobIds, setAnimationJobIds] = useState({});
+  const [animationProgress, setAnimationProgress] = useState({});
+  const pollRef = useRef(null);
+  const animPollRef = useRef(null);
   const [animatedScenes, setAnimatedScenes] = useState(new Set([0]));
   const [animationTier, setAnimationTier] = useState("minimal");
   const [animating, setAnimating] = useState(false);
@@ -476,9 +481,44 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
   const handleGenerateImages = () => {
     setGenerating(true);
-    generateImages(prompts, imageModel, session)
-      .then(data => { setImages(data.urls); setGenerating(false); setStep(4); })
-      .catch(err => { alert("Image generation error: " + err.message); setGenerating(false); });
+    setImageProgress(new Array(8).fill("pending"));
+
+    submitImages(prompts, imageModel, session)
+      .then(data => {
+        const jobIds = data.jobs.map(j => j.jobId);
+        setImageJobIds(jobIds);
+
+        // Start polling every 3 seconds
+        pollRef.current = setInterval(async () => {
+          try {
+            const result = await checkJobs(jobIds, session);
+            const newImages = [...(images.length ? images : new Array(8).fill(null))];
+            const newProgress = [...imageProgress];
+
+            result.results.forEach(r => {
+              newProgress[r.index] = r.status;
+              if (r.status === "completed" && r.url) newImages[r.index] = r.url;
+            });
+
+            setImageProgress(newProgress);
+            setImages(newImages.filter(Boolean).length ? newImages : images);
+
+            if (result.allDone) {
+              clearInterval(pollRef.current);
+              setGenerating(false);
+              setStep(4);
+            }
+          } catch (err) {
+            clearInterval(pollRef.current);
+            setGenerating(false);
+            alert("Image polling error: " + err.message);
+          }
+        }, 3000);
+      })
+      .catch(err => {
+        setGenerating(false);
+        alert("Image submission error: " + err.message);
+      });
   };
 
   const handleRejectImage = (idx) => {
@@ -536,17 +576,51 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
     setAnimating(true);
     const animatedList = [...animatedScenes].sort((a, b) => a - b);
     const motionPrompt = `${selectedChannel?.kling_style || "slow, cinematic"}. Gentle natural movement. Warm atmospheric light.`;
-    // Animate all selected scenes in parallel
-    Promise.all(
-      animatedList.map(idx => animateScene(images[idx], motionPrompt, videoModel, session))
-    )
-      .then(results => {
-        setAnimationUrls(Object.fromEntries(animatedList.map((idx, i) => [idx, results[i].url])));
-        setAnimating(false);
-        setAnimationReady(true);
-        setStep(5);
+
+    submitAnimations(images, animatedList, motionPrompt, videoModel, session)
+      .then(data => {
+        const jobMap = {};
+        data.jobs.forEach(j => { jobMap[j.sceneIndex] = j.jobId; });
+        setAnimationJobIds(jobMap);
+
+        const initialProgress = {};
+        animatedList.forEach(idx => { initialProgress[idx] = "pending"; });
+        setAnimationProgress(initialProgress);
+
+        // Poll every 5 seconds for animation completion
+        animPollRef.current = setInterval(async () => {
+          try {
+            const jobIds = animatedList.map(idx => jobMap[idx]);
+            const result = await checkJobs(jobIds, session);
+            const newUrls = { ...animationUrls };
+            const newProgress = { ...animationProgress };
+
+            result.results.forEach((r, i) => {
+              const sceneIdx = animatedList[i];
+              newProgress[sceneIdx] = r.status;
+              if (r.status === "completed" && r.url) newUrls[sceneIdx] = r.url;
+            });
+
+            setAnimationProgress(newProgress);
+            setAnimationUrls(newUrls);
+
+            if (result.allDone) {
+              clearInterval(animPollRef.current);
+              setAnimating(false);
+              setAnimationReady(true);
+              setStep(5);
+            }
+          } catch (err) {
+            clearInterval(animPollRef.current);
+            setAnimating(false);
+            alert("Animation polling error: " + err.message);
+          }
+        }, 5000);
       })
-      .catch(err => { alert("Animation error: " + err.message); setAnimating(false); });
+      .catch(err => {
+        setAnimating(false);
+        alert("Animation submission error: " + err.message);
+      });
   };
 
   const handleSave = () => {
@@ -580,6 +654,8 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   };
 
   const handleReset = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (animPollRef.current) clearInterval(animPollRef.current);
     setStep(1); setChannel(""); setClientName(""); setLanguage("both");
     setScript(""); setSpanishScript(""); setPrompts(MOCK_PROMPTS);
     setImages([]); setRejectedImages(new Set()); setAnimationReady(false);
@@ -587,6 +663,8 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
     setImageModel("nano_banana_2"); setVideoModel("kling3_0_turbo");
     setCostPreview(null); setAnimatedScenes(new Set([0])); setAnimationTier("minimal");
     setQualityTier("standard"); setPreferenceSaved(false);
+    setImageJobIds([]); setImageProgress([]); setAnimationJobIds({});
+    setAnimationProgress({}); setAnimationUrls({});
   };
 
   // ── Screens ──────────────────────────────────────────────────────────────
@@ -988,11 +1066,18 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               ))}
             </div>
 
-            <div style={{ display: "flex", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
               <button onClick={() => setStep(needsTranslation ? 2 : 1)} style={ghostBtn}>← Back</button>
               <button onClick={handleGenerateImages} disabled={generating} style={primaryBtn(generating)}>
-                {generating ? "Generating 8 images..." : "Generate All 8 Images →"}
+                {generating
+                  ? `Generating... ${imageProgress.filter(s => s === "completed").length}/8 ready`
+                  : "Generate All 8 Images →"}
               </button>
+              {generating && (
+                <div style={{ fontSize: "12px", color: "#6B7280" }}>
+                  Images appear one by one as they complete
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1039,47 +1124,48 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               </div>
             </div>
 
-            {/* Image grid */}
+            {/* Image grid — shows all 8 slots, images appear as they complete */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
-              {images.map((url, i) => {
+              {Array.from({ length: 8 }).map((_, i) => {
                 const isAnimated = animatedScenes.has(i);
                 const isRejected = rejectedImages.has(i);
+                const hasImage = images[i];
+                const sceneStatus = imageProgress[i];
                 return (
                   <div key={i} style={{ position: "relative" }}>
                     {/* Scene number */}
-                    <div style={{ position: "absolute", top: "8px", left: "8px", zIndex: 2, width: "22px", height: "22px", borderRadius: "50%", background: isAnimated ? "rgba(201,151,58,0.95)" : "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: isAnimated ? "#0F1117" : "#fff" }}>
+                    <div style={{ position: "absolute", top: "8px", left: "8px", zIndex: 2, width: "22px", height: "22px", borderRadius: "50%", background: isAnimated && hasImage ? "rgba(201,151,58,0.95)" : "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: isAnimated && hasImage ? "#0F1117" : "#fff" }}>
                       {String(i + 1).padStart(2, "0")}
                     </div>
                     {/* Kling badge */}
-                    {isAnimated && (
+                    {isAnimated && hasImage && (
                       <div style={{ position: "absolute", bottom: "36px", left: "8px", zIndex: 2, background: "rgba(201,151,58,0.95)", borderRadius: "4px", padding: "2px 6px", fontSize: "10px", fontWeight: 700, color: "#0F1117" }}>⚡ KLING</div>
                     )}
-                    {/* Animate toggle button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleScene(i); }}
-                      style={{
-                        position: "absolute", bottom: "8px", left: "8px", zIndex: 4,
-                        padding: "3px 8px", borderRadius: "5px", border: "none",
-                        background: isAnimated ? "rgba(201,151,58,0.9)" : "rgba(0,0,0,0.6)",
-                        color: isAnimated ? "#0F1117" : "#9CA3AF",
-                        fontSize: "10px", fontWeight: 700, cursor: "pointer",
-                      }}
-                    >
-                      {isAnimated ? "⚡ On" : "⚡ Off"}
-                    </button>
+                    {/* Animate toggle — only show when image is ready */}
+                    {hasImage && (
+                      <button onClick={(e) => { e.stopPropagation(); toggleScene(i); }} style={{ position: "absolute", bottom: "8px", left: "8px", zIndex: 4, padding: "3px 8px", borderRadius: "5px", border: "none", background: isAnimated ? "rgba(201,151,58,0.9)" : "rgba(0,0,0,0.6)", color: isAnimated ? "#0F1117" : "#9CA3AF", fontSize: "10px", fontWeight: 700, cursor: "pointer" }}>
+                        {isAnimated ? "⚡ On" : "⚡ Off"}
+                      </button>
+                    )}
                     {/* Rejected overlay */}
-                    {isRejected && (
+                    {isRejected && hasImage && (
                       <div style={{ position: "absolute", inset: 0, zIndex: 3, background: "rgba(239,68,68,0.5)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", pointerEvents: "none" }}>✗</div>
                     )}
-                    <img
-                      src={url} alt={`Scene ${i + 1}`}
-                      onClick={() => handleRejectImage(i)}
-                      style={{
-                        width: "100%", aspectRatio: "9/16", objectFit: "cover", borderRadius: "10px",
-                        border: isRejected ? "2px solid #EF4444" : isAnimated ? "2px solid #C9973A" : "2px solid #2A2D3A",
-                        cursor: "pointer", display: "block",
-                      }}
-                    />
+                    {/* Pending placeholder */}
+                    {!hasImage && (
+                      <div style={{ width: "100%", aspectRatio: "9/16", borderRadius: "10px", border: "2px dashed #2A2D3A", background: "#1A1D27", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                        <div style={{ fontSize: "20px" }}>
+                          {sceneStatus === "failed" ? "✗" : "⏳"}
+                        </div>
+                        <div style={{ fontSize: "10px", color: "#4B5563", textAlign: "center" }}>
+                          {sceneStatus === "failed" ? "Failed" : sceneStatus === "processing" ? "Generating..." : "Waiting..."}
+                        </div>
+                      </div>
+                    )}
+                    {/* Image */}
+                    {hasImage && (
+                      <img src={images[i]} alt={`Scene ${i + 1}`} onClick={() => handleRejectImage(i)} style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", borderRadius: "10px", border: isRejected ? "2px solid #EF4444" : isAnimated ? "2px solid #C9973A" : "2px solid #2A2D3A", cursor: "pointer", display: "block" }} />
+                    )}
                   </div>
                 );
               })}
@@ -1212,6 +1298,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );

@@ -63,7 +63,36 @@ export async function saveToAirtable(jobData, session) {
   return res.json();
 }
 
-export async function getModels(type, session) {
+export async function submitImages(prompts, imageModel, session) {
+  const res = await fetch(`${BASE}/submit-images`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompts, imageModel, session }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // { jobs: [{index, jobId, status}] }
+}
+
+export async function checkJobs(jobIds, session) {
+  const res = await fetch(`${BASE}/check-jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jobIds, session }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // { results: [{index, jobId, status, url}], allDone, completedCount }
+}
+
+export async function submitAnimations(imageUrls, animatedSceneIndexes, motionPrompt, videoModel, session) {
+  const res = await fetch(`${BASE}/submit-animations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageUrls, animatedSceneIndexes, motionPrompt, videoModel, session }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // { jobs: [{sceneIndex, jobId, status}] }
+}
+
   const res = await fetch(`${BASE}/models?type=${type}`, {
     headers: { "Content-Type": "application/json", "x-session": JSON.stringify(session) },
   });
