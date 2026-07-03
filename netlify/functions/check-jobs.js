@@ -4,8 +4,15 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: "Method not allowed" };
   }
 
-  const { jobs, session } = JSON.parse(event.body || "{}");
-  if (!jobs || !Array.isArray(jobs)) {
+  let parsed;
+  try {
+    parsed = JSON.parse(event.body || "{}");
+  } catch (e) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON body" }) };
+  }
+
+  const { jobs, session } = parsed;
+  if (!jobs || !Array.isArray(jobs) || jobs.length === 0) {
     return { statusCode: 400, body: JSON.stringify({ error: "jobs array required" }) };
   }
 
@@ -19,29 +26,60 @@ exports.handler = async (event) => {
     const statusPromises = jobs.map(async (job) => {
       if (!job.requestId) return { ...job, status: "FAILED", url: null };
 
-      // Check status
-      const statusRes = await fetch(
-        `https://queue.fal.run/${job.endpoint}/requests/${job.requestId}/status`,
-        { headers: { "Authorization": `Key ${falKey}` } }
-      );
-      const statusData = await statusRes.json();
-
-      if (statusData.status === "COMPLETED") {
-        // Get result
-        const resultRes = await fetch(
-          `https://queue.fal.run/${job.endpoint}/requests/${job.requestId}`,
-          { headers: { "Authorization": `Key ${falKey}` } }
+      try {
+        // Check status using fal.ai queue status endpoint
+        const statusRes = await fetch(
+          `https://queue.fal.run/${job.endpoint}/requests/${job.requestId}/status`,
+          {
+            headers: {
+              "Authorization": `Key ${falKey}`,
+              "Content-Type": "application/json",
+            }
+          }
         );
-        const resultData = await resultRes.json();
-        const url = resultData.images?.[0]?.url || resultData.image?.url || null;
-        return { ...job, status: "COMPLETED", url };
-      }
 
-      return {
-        ...job,
-        status: statusData.status, // IN_QUEUE | IN_PROGRESS | COMPLETED | FAILED
-        url: null,
-      };
+        if (!statusRes.ok) {
+          const errText = await statusRes.text();
+          console.error(`Status check failed for ${job.requestId}: ${errText}`);
+          return { ...job, status: "IN_QUEUE", url: null };
+        }
+
+        const statusText = await statusRes.text();
+        if (!statusText) return { ...job, status: "IN_QUEUE", url: null };
+
+        const statusData = JSON.parse(statusText);
+        const status = statusData.status || "IN_QUEUE";
+
+        if (status === "COMPLETED") {
+          // Get result from fal.ai
+          const resultRes = await fetch(
+            `https://queue.fal.run/${job.endpoint}/requests/${job.requestId}`,
+            {
+              headers: {
+                "Authorization": `Key ${falKey}`,
+                "Content-Type": "application/json",
+              }
+            }
+          );
+          const resultText = await resultRes.text();
+          if (!resultText) return { ...job, status: "COMPLETED", url: null };
+
+          const resultData = JSON.parse(resultText);
+          // Try multiple possible URL locations in fal.ai response
+          const url = resultData.images?.[0]?.url
+            || resultData.image?.url
+            || resultData.output?.url
+            || resultData.video?.url
+            || null;
+
+          return { ...job, status: "COMPLETED", url };
+        }
+
+        return { ...job, status, url: null };
+      } catch (jobErr) {
+        console.error(`Error checking job ${job.requestId}:`, jobErr.message);
+        return { ...job, status: "IN_QUEUE", url: null };
+      }
     });
 
     const results = await Promise.all(statusPromises);
