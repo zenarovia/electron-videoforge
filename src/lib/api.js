@@ -93,6 +93,7 @@ export async function submitAnimations(imageUrls, animatedSceneIndexes, motionPr
   return res.json(); // { jobs: [{sceneIndex, jobId, status}] }
 }
 
+export async function getModels(type, session) {
   const res = await fetch(`${BASE}/models?type=${type}`, {
     headers: { "Content-Type": "application/json", "x-session": JSON.stringify(session) },
   });
