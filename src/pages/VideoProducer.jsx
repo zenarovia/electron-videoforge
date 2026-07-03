@@ -7,9 +7,11 @@ const PRESET_CHANNELS = [
   { id: "woh", name: "A World of Horses", style: "cinematic film grain, muted warm golden-brown palette, shallow depth of field, photorealistic, 9:16 vertical", kling_style: "slow, cinematic, warm and atmospheric", preset: true },
   { id: "bof", name: "Business of Our Father", style: "cinematic film grain, rich gold and black tones, dramatic biblical lighting, photorealistic, 9:16 vertical", kling_style: "slow, dramatic, biblical and majestic", preset: true },
   { id: "mmm", name: "Mystery Mile Marker", style: "cinematic film grain, dark dramatic lighting, deep shadows, mysterious atmosphere, photorealistic, 9:16 vertical", kling_style: "slow, eerie, suspenseful", preset: true },
+  { id: "lmm", name: "La Milla Misteriosa", style: "cinematic film grain, dark dramatic lighting, deep shadows, mysterious atmosphere, photorealistic, 9:16 vertical", kling_style: "slow, eerie, suspenseful", preset: true, defaultLang: "es" },
   { id: "cuf", name: "Chicago Underworld Files", style: "cinematic film grain, noir black and white with amber highlights, 1920s-1950s era, photorealistic, 9:16 vertical", kling_style: "slow, gritty, noir and cinematic", preset: true },
   { id: "sdu", name: "San Diego Uncovered", style: "cinematic film grain, warm California golden light, sun-drenched coastal tones, photorealistic, 9:16 vertical", kling_style: "slow, warm, sun-drenched and historical", preset: true },
   { id: "mbl", name: "My Bilingual Life", style: "cinematic film grain, bright warm classroom tones, inviting educational feel, photorealistic, 9:16 vertical", kling_style: "gentle, warm, friendly and educational", preset: true },
+  { id: "nnp", name: "El Negocio de Nuestro Padre", style: "cinematic film grain, rich gold and black tones, dramatic biblical lighting, photorealistic, 9:16 vertical", kling_style: "slow, dramatic, biblical and majestic", preset: true, defaultLang: "es" },
   { id: "other", name: "✦ Other / Client Work", style: "", kling_style: "", preset: true, isOther: true },
 ];
 

@@ -1,8 +1,14 @@
 // ─── VideoForge Auth ──────────────────────────────────────────────────────────
 const STORAGE_KEY = "videoforge:session";
 
-const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || "")
-  .split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
+// Hardcoded admin emails — always admin regardless of env vars
+const HARDCODED_ADMINS = ["twilag@gmail.com", "the.focused.system@gmail.com"];
+
+const ADMIN_EMAILS = [
+  ...HARDCODED_ADMINS,
+  ...(import.meta.env.VITE_ADMIN_EMAILS || "")
+    .split(",").map(e => e.trim().toLowerCase()).filter(Boolean)
+];
 
 async function hashPassword(password) {
   const encoder = new TextEncoder();
