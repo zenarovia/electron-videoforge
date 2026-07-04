@@ -100,7 +100,7 @@ export async function assembleVideo(jobData, session) {
     body: JSON.stringify({ ...jobData, session }),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  return res.json(); // { success, allReady, enUrl?, esUrl? }
 }
 
 export async function checkAssemblyStatus(jobId, language, session) {

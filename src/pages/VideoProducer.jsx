@@ -673,20 +673,10 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
     };
 
     assembleVideo(jobData, session)
-      .then(() => {
-        assemblyPollRef.current = setInterval(async () => {
-          try {
-            const status = await checkAssemblyStatus(jobId, language, session);
-            if (status.enUrl) setEnVideoUrl(status.enUrl);
-            if (status.esUrl) setEsVideoUrl(status.esUrl);
-            if (status.allReady) {
-              clearInterval(assemblyPollRef.current);
-              setAssembling(false);
-            }
-          } catch (err) {
-            console.error("Assembly poll error:", err.message);
-          }
-        }, 10000);
+      .then(data => {
+        if (data.enUrl) setEnVideoUrl(data.enUrl);
+        if (data.esUrl) setEsVideoUrl(data.esUrl);
+        setAssembling(false);
       })
       .catch(err => {
         setAssembling(false);
