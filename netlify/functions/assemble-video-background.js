@@ -120,14 +120,10 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
 
   if (imagePaths.length === 0) throw new Error("No images to assemble");
 
-  // Get audio duration using bundled ffmpeg
+  // Get audio duration
   const probe = spawnSync(ffmpegPath, [
-    "-i", audioPath,
-    "-hide_banner",
-    "-f", "null", "-"
+    "-i", audioPath, "-hide_banner", "-f", "null", "-"
   ], { encoding: "utf8" });
-
-  // Parse duration from stderr
   const durationMatch = (probe.stderr || "").match(/Duration: (\d+):(\d+):(\d+\.?\d*)/);
   let audioDuration = 60;
   if (durationMatch) {
@@ -135,51 +131,91 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
   }
   console.log(`Audio duration: ${audioDuration}s`);
 
-  // Download animations first so we know which scenes actually have them
-  const ANIM_DURATION = 5; // Kling animations are 5 seconds
+  // Download animations
+  const ANIM_DURATION = 5;
   const downloadedAnims = {};
   for (const { index } of imagePaths) {
     const animUrl = animationUrls?.[index];
     if (animUrl) {
       const animRes = await fetch(animUrl);
       if (animRes.ok) {
-        const animPath = join(tmpDir, `anim-${index}.mp4`);
+        const animPath = join(tmpDir, `anim-raw-${index}.mp4`);
         writeFileSync(animPath, Buffer.from(await animRes.arrayBuffer()));
         downloadedAnims[index] = animPath;
       }
     }
   }
 
-  // Animations keep their full 5s. Split remaining audio time among still image scenes.
+  // Calculate per-still duration
   const animCount = Object.keys(downloadedAnims).length;
   const stillCount = imagePaths.length - animCount;
   const remainingTime = audioDuration - (animCount * ANIM_DURATION);
   const perStillDuration = stillCount > 0 ? remainingTime / stillCount : audioDuration / imagePaths.length;
   console.log(`Anim scenes: ${animCount}, still scenes: ${stillCount}, per-still: ${perStillDuration.toFixed(3)}s`);
 
-  // Build input list
-  const inputListPath = join(tmpDir, `input-${Date.now()}.txt`);
-  let inputList = "";
-
+  // Convert every scene to a standardized MP4 clip (no audio, same resolution)
+  // This ensures FFmpeg only ever concats MP4s — mixing JPGs and MP4s causes stream issues
+  const clipPaths = [];
   for (const { index, path: imgPath } of imagePaths) {
+    const clipPath = join(tmpDir, `clip-${index}.mp4`);
+
     if (downloadedAnims[index]) {
-      inputList += `file '${downloadedAnims[index]}'\nduration ${ANIM_DURATION}\n`;
+      // Re-encode animation clip to standard format, trim to ANIM_DURATION
+      const r = spawnSync(ffmpegPath, [
+        "-y",
+        "-i", downloadedAnims[index],
+        "-t", String(ANIM_DURATION),
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-an",
+        clipPath
+      ], { timeout: 120000 });
+      if (r.status !== 0) {
+        console.warn(`Anim encode failed for scene ${index}, falling back to still`);
+        // Fall back to still image if animation encode fails
+        const fallback = spawnSync(ffmpegPath, [
+          "-y",
+          "-loop", "1", "-i", imgPath,
+          "-t", perStillDuration.toFixed(3),
+          "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
+          "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+          "-an",
+          clipPath
+        ], { timeout: 120000 });
+        if (fallback.status !== 0) throw new Error(`Still encode failed for scene ${index}`);
+      }
     } else {
-      inputList += `file '${imgPath}'\nduration ${perStillDuration.toFixed(3)}\n`;
+      // Convert still image to video clip
+      const r = spawnSync(ffmpegPath, [
+        "-y",
+        "-loop", "1", "-i", imgPath,
+        "-t", perStillDuration.toFixed(3),
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-an",
+        clipPath
+      ], { timeout: 120000 });
+      if (r.status !== 0) throw new Error(`Still encode failed for scene ${index}: ${r.stderr?.toString()?.slice(-200)}`);
     }
+
+    clipPaths.push(clipPath);
+    console.log(`Scene ${index} encoded → ${clipPath}`);
   }
 
-  writeFileSync(inputListPath, inputList);
-  console.log("Input list:\n" + inputList);
+  // Concat all MP4 clips
+  const concatListPath = join(tmpDir, `concat-${Date.now()}.txt`);
+  const concatList = clipPaths.map(p => `file '${p}'`).join("\n");
+  writeFileSync(concatListPath, concatList);
+  console.log("Concat list:\n" + concatList);
 
-  // Run FFmpeg with bundled binary
+  // Final merge: concat video clips + audio
   const result = spawnSync(ffmpegPath, [
     "-y",
-    "-f", "concat", "-safe", "0", "-i", inputListPath,
+    "-f", "concat", "-safe", "0", "-i", concatListPath,
     "-i", audioPath,
-    "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
-    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+    "-c:v", "copy",
     "-c:a", "aac", "-b:a", "128k",
+    "-shortest",
     "-movflags", "+faststart",
     outputPath
   ], { timeout: 600000 });
