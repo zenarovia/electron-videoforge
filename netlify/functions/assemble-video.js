@@ -1,6 +1,5 @@
 // assemble-video.js — Assembles video with Fish Audio TTS + FFmpeg
-// Netlify Pro background function — up to 15 minute timeout
-// CommonJS format for maximum Netlify compatibility
+// Uses ffmpeg-static for bundled FFmpeg binary on Netlify
 
 const { getStore } = require("@netlify/blobs");
 const { spawnSync } = require("child_process");
@@ -8,19 +7,16 @@ const { writeFileSync, readFileSync, mkdirSync, existsSync } = require("fs");
 const { join } = require("path");
 const { tmpdir } = require("os");
 
+// Use bundled ffmpeg-static binary
+const ffmpegPath = require("ffmpeg-static");
+
 const FISH_AUDIO_API = "https://api.fish.audio/v1/tts";
 const FISH_VOICE_EN = "bf322df2096a46f18c579d0baa36f41d";
 const FISH_VOICE_ES = "a1cb66db45664ddaa95043f285dbae42";
 
 exports.handler = async (event) => {
-  // Handle CORS preflight
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, body: "" };
-  }
-
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method not allowed" };
-  }
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method not allowed" };
 
   let parsed;
   try {
@@ -40,11 +36,14 @@ exports.handler = async (event) => {
     : session?.fishApiKey;
 
   if (!fishKey) {
-    return { statusCode: 401, body: JSON.stringify({ error: "No Fish Audio API key. Add FISH_AUDIO_API_KEY to Netlify env vars." }) };
+    return { statusCode: 401, body: JSON.stringify({ error: "No Fish Audio API key" }) };
   }
 
   const tmpDir = join(tmpdir(), `vf-${jobId}`);
   if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
+
+  console.log(`FFmpeg path: ${ffmpegPath}`);
+  console.log(`Job: ${jobId}, language: ${language}, images: ${imageUrls.filter(Boolean).length}`);
 
   try {
     const results = {};
@@ -58,6 +57,7 @@ exports.handler = async (event) => {
       const enUrl = await uploadToBlobs(enVideoPath, `${jobId}-en.mp4`);
       results.enUrl = enUrl;
       results.enReady = true;
+      console.log("EN done:", enUrl);
     }
 
     if (language === "es" || language === "both") {
@@ -69,6 +69,7 @@ exports.handler = async (event) => {
       const esUrl = await uploadToBlobs(esVideoPath, `${jobId}-es.mp4`);
       results.esUrl = esUrl;
       results.esReady = true;
+      console.log("ES done:", esUrl);
     }
 
     return {
@@ -79,14 +80,10 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error("Assembly error:", err.message);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
 
-// ─── Fish Audio TTS ───────────────────────────────────────────────────────────
 async function generateVoiceover(script, voiceId, apiKey, outputPath) {
   const res = await fetch(FISH_AUDIO_API, {
     method: "POST",
@@ -94,27 +91,14 @@ async function generateVoiceover(script, voiceId, apiKey, outputPath) {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      text: script,
-      reference_id: voiceId,
-      format: "mp3",
-      mp3_bitrate: 128,
-    }),
+    body: JSON.stringify({ text: script, reference_id: voiceId, format: "mp3", mp3_bitrate: 128 }),
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Fish Audio failed: ${res.status} ${errText}`);
-  }
-
-  const buffer = await res.arrayBuffer();
-  writeFileSync(outputPath, Buffer.from(buffer));
+  if (!res.ok) throw new Error(`Fish Audio failed: ${res.status} ${await res.text()}`);
+  writeFileSync(outputPath, Buffer.from(await res.arrayBuffer()));
   return outputPath;
 }
 
-// ─── FFmpeg Assembly ──────────────────────────────────────────────────────────
 async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tmpDir) {
-  // Download all images
   const imagePaths = [];
   for (let i = 0; i < imageUrls.length; i++) {
     if (!imageUrls[i]) continue;
@@ -127,12 +111,20 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
 
   if (imagePaths.length === 0) throw new Error("No images to assemble");
 
-  // Get audio duration
-  const probe = spawnSync("ffprobe", [
-    "-v", "error", "-show_entries", "format=duration",
-    "-of", "default=noprint_wrappers=1:nokey=1", audioPath
-  ]);
-  const audioDuration = parseFloat(probe.stdout?.toString() || "60");
+  // Get audio duration using bundled ffmpeg
+  const probe = spawnSync(ffmpegPath, [
+    "-i", audioPath,
+    "-hide_banner",
+    "-f", "null", "-"
+  ], { encoding: "utf8" });
+
+  // Parse duration from stderr
+  const durationMatch = (probe.stderr || "").match(/Duration: (\d+):(\d+):(\d+\.?\d*)/);
+  let audioDuration = 60;
+  if (durationMatch) {
+    audioDuration = parseInt(durationMatch[1]) * 3600 + parseInt(durationMatch[2]) * 60 + parseFloat(durationMatch[3]);
+  }
+  console.log(`Audio duration: ${audioDuration}s`);
   const perImageDuration = audioDuration / imagePaths.length;
 
   // Build input list
@@ -156,9 +148,10 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
   }
 
   writeFileSync(inputListPath, inputList);
+  console.log("Input list:\n" + inputList);
 
-  // Run FFmpeg
-  const result = spawnSync("ffmpeg", [
+  // Run FFmpeg with bundled binary
+  const result = spawnSync(ffmpegPath, [
     "-y",
     "-f", "concat", "-safe", "0", "-i", inputListPath,
     "-i", audioPath,
@@ -167,17 +160,17 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
     "-c:a", "aac", "-b:a", "128k",
     "-shortest", "-movflags", "+faststart",
     outputPath
-  ], { timeout: 600000 }); // 10 min max for FFmpeg
+  ], { timeout: 600000 });
 
   if (result.status !== 0) {
-    const stderr = result.stderr?.toString()?.slice(-500) || "unknown error";
-    throw new Error(`FFmpeg failed: ${stderr}`);
+    const stderr = result.stderr?.toString()?.slice(-1000) || "unknown error";
+    console.error("FFmpeg stderr:", stderr);
+    throw new Error(`FFmpeg failed: ${stderr.slice(-200)}`);
   }
 
   return outputPath;
 }
 
-// ─── Upload to Netlify Blobs ──────────────────────────────────────────────────
 async function uploadToBlobs(filePath, fileName) {
   const store = getStore({ name: "videoforge-videos", consistency: "strong" });
   const fileBuffer = readFileSync(filePath);
