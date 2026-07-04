@@ -134,25 +134,38 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
     audioDuration = parseInt(durationMatch[1]) * 3600 + parseInt(durationMatch[2]) * 60 + parseFloat(durationMatch[3]);
   }
   console.log(`Audio duration: ${audioDuration}s`);
-  const perImageDuration = audioDuration / imagePaths.length;
+
+  // Download animations first so we know which scenes actually have them
+  const ANIM_DURATION = 5; // Kling animations are 5 seconds
+  const downloadedAnims = {};
+  for (const { index } of imagePaths) {
+    const animUrl = animationUrls?.[index];
+    if (animUrl) {
+      const animRes = await fetch(animUrl);
+      if (animRes.ok) {
+        const animPath = join(tmpDir, `anim-${index}.mp4`);
+        writeFileSync(animPath, Buffer.from(await animRes.arrayBuffer()));
+        downloadedAnims[index] = animPath;
+      }
+    }
+  }
+
+  // Animations keep their full 5s. Split remaining audio time among still image scenes.
+  const animCount = Object.keys(downloadedAnims).length;
+  const stillCount = imagePaths.length - animCount;
+  const remainingTime = audioDuration - (animCount * ANIM_DURATION);
+  const perStillDuration = stillCount > 0 ? remainingTime / stillCount : audioDuration / imagePaths.length;
+  console.log(`Anim scenes: ${animCount}, still scenes: ${stillCount}, per-still: ${perStillDuration.toFixed(3)}s`);
 
   // Build input list
   const inputListPath = join(tmpDir, `input-${Date.now()}.txt`);
   let inputList = "";
 
   for (const { index, path: imgPath } of imagePaths) {
-    const animUrl = animationUrls?.[index];
-    if (animUrl) {
-      const animPath = join(tmpDir, `anim-${index}.mp4`);
-      const animRes = await fetch(animUrl);
-      if (animRes.ok) {
-        writeFileSync(animPath, Buffer.from(await animRes.arrayBuffer()));
-        inputList += `file '${animPath}'\nduration 5\n`;
-      } else {
-        inputList += `file '${imgPath}'\nduration ${perImageDuration.toFixed(3)}\n`;
-      }
+    if (downloadedAnims[index]) {
+      inputList += `file '${downloadedAnims[index]}'\nduration ${ANIM_DURATION}\n`;
     } else {
-      inputList += `file '${imgPath}'\nduration ${perImageDuration.toFixed(3)}\n`;
+      inputList += `file '${imgPath}'\nduration ${perStillDuration.toFixed(3)}\n`;
     }
   }
 
