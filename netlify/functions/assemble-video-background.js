@@ -173,11 +173,14 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
       if (r.status !== 0) {
         console.warn(`Anim encode failed for scene ${index}, falling back to still`);
         // Fall back to still image if animation encode fails
+        const fbFps = 25;
+        const fbFrames = Math.ceil(perStillDuration * fbFps);
+        const fbKenBurns = `scale=8000:-1,zoompan=z='1.0+${(0.05/fbFrames).toFixed(6)}*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${fbFrames}:s=1080x1920:fps=${fbFps},setsar=1`;
         const fallback = spawnSync(ffmpegPath, [
           "-y",
           "-loop", "1", "-i", imgPath,
           "-t", perStillDuration.toFixed(3),
-          "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
+          "-vf", fbKenBurns,
           "-c:v", "libx264", "-preset", "fast", "-crf", "23",
           "-an",
           clipPath
@@ -185,12 +188,19 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
         if (fallback.status !== 0) throw new Error(`Still encode failed for scene ${index}`);
       }
     } else {
-      // Convert still image to video clip
+      // Convert still image to video clip with Ken Burns zoom effect
+      const fps = 25;
+      const totalFrames = Math.ceil(perStillDuration * fps);
+      // Alternate between zoom-in and zoom-out based on scene index for variety
+      const zoomDir = index % 2 === 0 ? 1 : -1;
+      const zoomStart = zoomDir === 1 ? 1.0 : 1.05;
+      const zoomEnd = zoomDir === 1 ? 1.05 : 1.0;
+      const kenBurns = `scale=8000:-1,zoompan=z='${zoomStart}+${((zoomEnd-zoomStart)/totalFrames).toFixed(6)}*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${totalFrames}:s=1080x1920:fps=${fps},setsar=1`;
       const r = spawnSync(ffmpegPath, [
         "-y",
         "-loop", "1", "-i", imgPath,
         "-t", perStillDuration.toFixed(3),
-        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
+        "-vf", kenBurns,
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-an",
         clipPath
@@ -213,7 +223,7 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
     "-y",
     "-f", "concat", "-safe", "0", "-i", concatListPath,
     "-i", audioPath,
-    "-c:v", "copy",
+    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
     "-c:a", "aac", "-b:a", "128k",
     "-shortest",
     "-movflags", "+faststart",
