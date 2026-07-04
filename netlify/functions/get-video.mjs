@@ -10,7 +10,7 @@ export default async (req, context) => {
   }
 
   try {
-    const store = getStore({ name: "videoforge-videos", consistency: "strong" });
+    const store = getStore({ name: "videoforge-videos", consistency: "strong", siteID: process.env.SITE_ID, token: process.env.NETLIFY_BLOBS_CONTEXT ? undefined : process.env.NETLIFY_AUTH_TOKEN });
     const { data, metadata } = await store.getWithMetadata(fileName, { type: "arrayBuffer" });
 
     if (!data) {
@@ -30,4 +30,4 @@ export default async (req, context) => {
   }
 };
 
-export const config = { path: "/api/get-video" };
+export const config = { path: "/.netlify/functions/get-video" };
