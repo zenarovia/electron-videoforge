@@ -1208,15 +1208,30 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
             {/* Animated scenes preview row */}
             <div style={{ display: "flex", gap: "12px", marginBottom: "24px", overflowX: "auto", paddingBottom: "4px" }}>
-              {[...animatedScenes].sort((a,b)=>a-b).map(i => (
-                <div key={i} style={{ width: "120px", flexShrink: 0, background: "#1A1D27", borderRadius: "10px", border: "2px solid rgba(201,151,58,0.4)", overflow: "hidden" }}>
-                  <img src={images[i]} alt={`Scene ${i+1}`} style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", display: "block" }} />
-                  <div style={{ padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontSize: "11px", color: "#C9973A", fontWeight: 600 }}>Scene {String(i+1).padStart(2,"0")}</div>
-                    <div style={{ fontSize: "10px", color: "#6B7280" }}>5s</div>
+              {[...animatedScenes].sort((a,b)=>a-b).map(i => {
+                const videoUrl = animationUrls[i];
+                return (
+                  <div key={i} style={{ width: "140px", flexShrink: 0, background: "#1A1D27", borderRadius: "10px", border: "2px solid rgba(201,151,58,0.4)", overflow: "hidden" }}>
+                    {videoUrl ? (
+                      <video
+                        src={videoUrl}
+                        controls
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", display: "block" }}
+                      />
+                    ) : (
+                      <img src={images[i]} alt={`Scene ${i+1}`} style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", display: "block" }} />
+                    )}
+                    <div style={{ padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ fontSize: "11px", color: "#C9973A", fontWeight: 600 }}>Scene {String(i+1).padStart(2,"0")}</div>
+                      <div style={{ fontSize: "10px", color: "#6B7280" }}>{videoUrl ? "▶ 5s" : "Still"}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div style={{ display: "flex", gap: "24px", marginBottom: "28px" }}>
