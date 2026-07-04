@@ -532,7 +532,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
         // Start polling every 4 seconds
         pollRef.current = setInterval(async () => {
           try {
-            const result = await checkJobs(currentJobId ? currentJobId : assemblyJobId, session, assemblyJobId);
+            const result = await checkJobs(jobs, session, currentJobId);
             const newImages = new Array(8).fill(null).map((_, i) => images[i] || null);
             const newProgress = [...imageProgress];
 
