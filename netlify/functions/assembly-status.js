@@ -13,7 +13,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const store = getStore({ name: "videoforge-assembly", consistency: "strong" });
+    const store = getStore({ name: "videoforge-assembly", consistency: "strong", siteID: process.env.SITE_ID, token: process.env.NETLIFY_BLOBS_CONTEXT ? undefined : process.env.NETLIFY_AUTH_TOKEN });
     const result = await store.get(`result-${jobId}`, { type: "json" });
 
     if (!result) {

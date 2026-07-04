@@ -73,7 +73,7 @@ exports.handler = async (event) => {
     }
 
   // Save result record so assembly-status.js can find it via polling
-    const assemblyStore = getStore({ name: "videoforge-assembly", consistency: "strong" });
+    const assemblyStore = getStore({ name: "videoforge-assembly", consistency: "strong", siteID: process.env.SITE_ID, token: process.env.NETLIFY_BLOBS_CONTEXT ? undefined : process.env.NETLIFY_AUTH_TOKEN });
     await assemblyStore.set(`result-${jobId}`, JSON.stringify({
       allReady: true,
       enUrl: results.enUrl || null,
@@ -181,7 +181,7 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
 }
 
 async function uploadToBlobs(filePath, fileName) {
-  const store = getStore({ name: "videoforge-videos", consistency: "strong" });
+  const store = getStore({ name: "videoforge-videos", consistency: "strong", siteID: process.env.SITE_ID, token: process.env.NETLIFY_BLOBS_CONTEXT ? undefined : process.env.NETLIFY_AUTH_TOKEN });
   const fileBuffer = readFileSync(filePath);
   await store.set(fileName, fileBuffer, { metadata: { contentType: "video/mp4" } });
   const siteUrl = process.env.URL || "";
