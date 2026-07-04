@@ -403,6 +403,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const [imageProgress, setImageProgress] = useState([]); // per-scene status
   const [animationJobIds, setAnimationJobIds] = useState({});
   const [animationProgress, setAnimationProgress] = useState({});
+  const [animationUrls, setAnimationUrls] = useState({});
   const pollRef = useRef(null);
   const animPollRef = useRef(null);
   const [animatedScenes, setAnimatedScenes] = useState(new Set([0]));
