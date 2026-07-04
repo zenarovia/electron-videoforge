@@ -43,6 +43,8 @@ exports.handler = async (event) => {
         sceneIndex: idx,
         requestId: data.request_id,
         endpoint,
+        statusUrl: data.status_url,
+        responseUrl: data.response_url,
         status: data.status || "IN_QUEUE",
       };
     });
