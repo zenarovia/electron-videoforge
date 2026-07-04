@@ -10,7 +10,7 @@ exports.handler = async (event) => {
   const tableId = session?.isAdmin ? process.env.AIRTABLE_JOBS_TABLE : session?.airtableTable;
 
   // Log what we have for debugging
-  console.log("Save job — isAdmin:", session?.isAdmin, "hasKey:", !!airtableKey, "hasBase:", !!baseId, "hasTable:", !!tableId);
+  console.log("Save job — isAdmin:", session?.isAdmin, "hasKey:", !!airtableKey, "hasBase:", !!baseId, "hasTable:", !!tableId, "baseId:", baseId);
 
   if (!airtableKey || !baseId || !tableId) {
     return {
@@ -42,7 +42,7 @@ exports.handler = async (event) => {
     }
     if (jobData.klingUrl) fields["Kling URL"] = jobData.klingUrl;
 
-    const airtableRes = await fetch(`https://api.airtable.com/v0/${baseId}/${tableId}`, {
+    const airtableRes = await fetch(`https://api.airtable.com/v0/${baseId}/Jobs`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${airtableKey}` },
       body: JSON.stringify({ fields, typecast: true }),
