@@ -70,10 +70,10 @@ export async function submitImages(prompts, imageModel, session) {
     body: JSON.stringify({ prompts, imageModel, session }),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json(); // { jobs: [{index, jobId, status}] }
+  return res.json();
 }
 
-// UPDATED: now accepts jobId so URLs get logged automatically
+// Updated: accepts jobId for URL logging
 export async function checkJobs(jobs, session, jobId) {
   const res = await fetch(`${BASE}/check-jobs`, {
     method: "POST",
@@ -91,17 +91,18 @@ export async function submitAnimations(imageUrls, animatedSceneIndexes, motionPr
     body: JSON.stringify({ imageUrls, animatedSceneIndexes, motionPrompt, videoModel, session }),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json(); // { jobs: [{sceneIndex, jobId, status}] }
+  return res.json();
 }
 
+// Updated: calls assemble-video-background for 15-minute timeout
 export async function assembleVideo(jobData, session) {
-  const res = await fetch(`${BASE}/assemble-video`, {
+  const res = await fetch(`${BASE}/assemble-video-background`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...jobData, session }),
   });
   if (!res.ok) throw new Error(await res.text());
-  return res.json(); // { success, allReady, enUrl?, esUrl? }
+  return res.json();
 }
 
 export async function checkAssemblyStatus(jobId, language, session) {
@@ -114,11 +115,11 @@ export async function checkAssemblyStatus(jobId, language, session) {
   return res.json();
 }
 
-// NEW: retrieve all saved URLs for a job at any time
+// New: retrieve all saved URLs for a job
 export async function getUrlLog(jobId) {
   const res = await fetch(`${BASE}/get-url-log?jobId=${encodeURIComponent(jobId)}`);
   if (!res.ok) throw new Error(await res.text());
-  return res.json(); // { jobId, log, images: {0:url,...}, animations: {0:url,...}, count }
+  return res.json();
 }
 
 export async function getModels(type, session) {
