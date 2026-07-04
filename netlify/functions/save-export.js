@@ -119,11 +119,7 @@ exports.handler = async (event) => {
 
   // 1. Save to Netlify Blobs
   try {
-    const store = getStore({
-      name: "videoforge-jobs",
-      siteID: process.env.NETLIFY_SITE_ID,
-      token: process.env.NETLIFY_AUTH_TOKEN,
-    });
+    const store = getStore("videoforge-jobs");
     await store.set(`job-${jobId}`, jsonContent);
     results.blobSaved = true;
     console.log("Blob save success for job:", jobId);
