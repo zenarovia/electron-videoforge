@@ -1,48 +1,37 @@
-// assembly-status.js — Checks if assembled videos are ready in Blobs
+// assembly-status.js — Checks if assembled videos are ready
 const { getStore } = require("@netlify/blobs");
 
 exports.handler = async (event) => {
-  const { jobId, language } = JSON.parse(event.body || "{}");
-  if (!jobId) return { statusCode: 400, body: JSON.stringify({ error: "jobId required" }) };
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Content-Type": "application/json",
+  };
+
+  const { jobId, language } = event.queryStringParameters || {};
+  if (!jobId) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: "jobId required" }) };
+  }
 
   try {
-    const store = getStore({ name: "videoforge-videos", consistency: "strong" });
-    const results = {};
+    const store = getStore({ name: "videoforge-assembly", consistency: "strong" });
+    const result = await store.get(`result-${jobId}`, { type: "json" });
 
-    const siteUrl = process.env.URL || process.env.DEPLOY_URL || "";
-
-    if (language === "en" || language === "both") {
-      const enFile = `${jobId}-en.mp4`;
-      try {
-        await store.get(enFile, { type: "arrayBuffer" });
-        results.enUrl = `${siteUrl}/.netlify/functions/get-video?file=${enFile}`;
-        results.enReady = true;
-      } catch {
-        results.enReady = false;
-      }
+    if (!result) {
+      // Still processing — tell the client to keep polling
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ allReady: false }),
+      };
     }
 
-    if (language === "es" || language === "both") {
-      const esFile = `${jobId}-es.mp4`;
-      try {
-        await store.get(esFile, { type: "arrayBuffer" });
-        results.esUrl = `${siteUrl}/.netlify/functions/get-video?file=${esFile}`;
-        results.esReady = true;
-      } catch {
-        results.esReady = false;
-      }
-    }
-
-    const allReady = language === "both"
-      ? results.enReady && results.esReady
-      : language === "en" ? results.enReady : results.esReady;
-
+    // Done — return the URLs
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...results, allReady }),
+      headers,
+      body: JSON.stringify(result),
     };
   } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };

@@ -72,6 +72,15 @@ exports.handler = async (event) => {
       console.log("ES done:", esUrl);
     }
 
+  // Save result record so assembly-status.js can find it via polling
+    const assemblyStore = getStore({ name: "videoforge-assembly", consistency: "strong" });
+    await assemblyStore.set(`result-${jobId}`, JSON.stringify({
+      allReady: true,
+      enUrl: results.enUrl || null,
+      esUrl: results.esUrl || null,
+    }));
+    console.log(`Saved assembly result for jobId: ${jobId}`);
+
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },

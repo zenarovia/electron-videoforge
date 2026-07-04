@@ -101,20 +101,15 @@ export async function assembleVideo(jobData, session) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...jobData, session }),
   });
+  // 202 = background function accepted — this is correct, not an error
+  if (res.status !== 202 && res.status !== 200) throw new Error(await res.text());
+  return { accepted: true };
+}
+export async function checkAssemblyStatus(jobId, session) {
+  const res = await fetch(`${BASE}/assembly-status?jobId=${encodeURIComponent(jobId)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
-
-export async function checkAssemblyStatus(jobId, language, session) {
-  const res = await fetch(`${BASE}/assembly-status`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jobId, language, session }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
 // New: retrieve all saved URLs for a job
 export async function getUrlLog(jobId) {
   const res = await fetch(`${BASE}/get-url-log?jobId=${encodeURIComponent(jobId)}`);

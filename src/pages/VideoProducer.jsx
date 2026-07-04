@@ -644,10 +644,22 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
     };
 
     assembleVideo(jobData, session)
-      .then(data => {
-        if (data.enUrl) setEnVideoUrl(data.enUrl);
-        if (data.esUrl) setEsVideoUrl(data.esUrl);
-        setAssembling(false);
+      .then(() => {
+        // Background function accepted (202) — start polling every 10 seconds
+        assemblyPollRef.current = setInterval(async () => {
+          try {
+            const status = await checkAssemblyStatus(jobId, session);
+            if (status.enUrl) setEnVideoUrl(status.enUrl);
+            if (status.esUrl) setEsVideoUrl(status.esUrl);
+            if (status.allReady) {
+              clearInterval(assemblyPollRef.current);
+              assemblyPollRef.current = null;
+              setAssembling(false);
+            }
+          } catch (err) {
+            console.error("Assembly poll error:", err.message);
+          }
+        }, 10000);
       })
       .catch(err => {
         setAssembling(false);
@@ -826,7 +838,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
               <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
                 {QUALITY_TIERS.map(tier => (
-                  <button key={tier.id} onClick={() => { setQualityTier(tier.id); setImageModel(tier.imageModel); setVideoModel(tier.videoModel); setCostPreview(null); }} style={{
+                  <button key={tier.id} onClick={() => { setQualityTier(tier.id); setImageModel(tier.imageModel); imageModelRef.current = tier.imageModel; setVideoModel(tier.videoModel); setCostPreview(null); }} style={{
                     flex: 1, padding: "12px 14px", borderRadius: "10px", cursor: "pointer", textAlign: "left",
                     background: qualityTier === tier.id ? "rgba(201,151,58,0.1)" : "#1A1D27",
                     border: qualityTier === tier.id ? "2px solid #C9973A" : "2px solid #2A2D3A",
