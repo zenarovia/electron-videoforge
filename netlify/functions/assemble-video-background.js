@@ -180,7 +180,7 @@ async function assembleVideo(imageUrls, animationUrls, audioPath, outputPath, tm
     "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
     "-c:v", "libx264", "-preset", "fast", "-crf", "23",
     "-c:a", "aac", "-b:a", "128k",
-    "-shortest", "-movflags", "+faststart",
+    "-movflags", "+faststart",
     outputPath
   ], { timeout: 600000 });
 
