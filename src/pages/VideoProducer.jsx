@@ -515,7 +515,9 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
       .catch(err => { alert("Prompt generation error: " + err.message); setGenerating(false); });
   };
 
-  const handleGenerateImages = () => {
+ const handleGenerateImages = () => {
+     const currentJobId = assemblyJobId || `vf-${Date.now()}`;
+     if (!assemblyJobId) setAssemblyJobId(currentJobId);
     setGenerating(true);
     setImageProgress(new Array(8).fill("IN_QUEUE"));
     setImages(new Array(8).fill(null));
@@ -530,7 +532,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
         // Start polling every 4 seconds
         pollRef.current = setInterval(async () => {
           try {
-            const result = await checkJobs(jobs, session);
+            const result = await checkJobs(currentJobId ? currentJobId : assemblyJobId, session, assemblyJobId);
             const newImages = new Array(8).fill(null).map((_, i) => images[i] || null);
             const newProgress = [...imageProgress];
 
@@ -625,7 +627,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
         // Poll every 6 seconds for animation completion
         animPollRef.current = setInterval(async () => {
           try {
-            const result = await checkJobs(jobs, session);
+            const result = await checkJobs(jobs, session, assemblyJobId);
             const newUrls = { ...animationUrls };
             const newProgress = { ...animationProgress };
 

@@ -73,11 +73,12 @@ export async function submitImages(prompts, imageModel, session) {
   return res.json(); // { jobs: [{index, jobId, status}] }
 }
 
-export async function checkJobs(jobs, session) {
+// UPDATED: now accepts jobId so URLs get logged automatically
+export async function checkJobs(jobs, session, jobId) {
   const res = await fetch(`${BASE}/check-jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jobs, session }),
+    body: JSON.stringify({ jobs, session, jobId }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -112,6 +113,14 @@ export async function checkAssemblyStatus(jobId, language, session) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+// NEW: retrieve all saved URLs for a job at any time
+export async function getUrlLog(jobId) {
+  const res = await fetch(`${BASE}/get-url-log?jobId=${encodeURIComponent(jobId)}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json(); // { jobId, log, images: {0:url,...}, animations: {0:url,...}, count }
+}
+
 export async function getModels(type, session) {
   const res = await fetch(`${BASE}/models?type=${type}`, {
     headers: { "Content-Type": "application/json", "x-session": JSON.stringify(session) },
