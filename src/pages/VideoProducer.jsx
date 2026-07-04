@@ -168,6 +168,33 @@ function AddChannelScreen({ onSave, onCancel, customChannels }) {
   const selectedMood = STYLE_MOODS.find(m => m.id === mood);
   const isValid = name.trim() && niche.trim() && mood && (mood !== "custom" || customStyle.trim());
 
+  const handleExport = () => {
+    const jobData = {
+      id: assemblyJobId || `vf-${Date.now()}`,
+      title: videoTitle,
+      channel: selectedChannel?.name || "Unknown",
+      language,
+      producer,
+      imageModel,
+      videoModel,
+      exportedAt: new Date().toISOString(),
+      imageUrls: images,
+      animationUrls: Object.fromEntries(
+        Object.entries(animationUrls).map(([k, v]) => [k, v])
+      ),
+      enScript: script,
+      esScript: spanishScript,
+      prompts,
+    };
+    const blob = new Blob([JSON.stringify(jobData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${videoTitle || "videoforge-job"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleSave = () => {
     setSaving(true);
     setTimeout(() => {
@@ -665,6 +692,33 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
         setAssembling(false);
         alert("Assembly error: " + err.message);
       });
+  };
+
+  const handleExport = () => {
+    const jobData = {
+      id: assemblyJobId || `vf-${Date.now()}`,
+      title: videoTitle,
+      channel: selectedChannel?.name || "Unknown",
+      language,
+      producer,
+      imageModel,
+      videoModel,
+      exportedAt: new Date().toISOString(),
+      imageUrls: images,
+      animationUrls: Object.fromEntries(
+        Object.entries(animationUrls).map(([k, v]) => [k, v])
+      ),
+      enScript: script,
+      esScript: spanishScript,
+      prompts,
+    };
+    const blob = new Blob([JSON.stringify(jobData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${videoTitle || "videoforge-job"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleSave = () => {
@@ -1237,9 +1291,17 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                 </div>
               )}
               {!enVideoUrl && !esVideoUrl && (
-                <button onClick={handleAssemble} disabled={assembling} style={{ ...primaryBtn(assembling), width: "100%", justifyContent: "center", padding: "16px" }}>
-                  {assembling ? "Assembling... check back in a few minutes" : `🎬 Assemble ${isBilingual ? "EN + ES Videos" : isSpanishOnly ? "ES Video" : "EN Video"}`}
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <button onClick={handleAssemble} disabled={assembling} style={{ ...primaryBtn(assembling), width: "100%", justifyContent: "center", padding: "16px" }}>
+                    {assembling ? "Assembling... check back in a few minutes" : `🎬 Assemble ${isBilingual ? "EN + ES Videos" : isSpanishOnly ? "ES Video" : "EN Video"}`}
+                  </button>
+                  <button onClick={handleExport} style={{ width: "100%", padding: "14px 16px", borderRadius: "10px", border: "2px solid #3A3D4A", background: "transparent", color: "#9CA3AF", fontSize: "14px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                    ↓ Export Job Data for Local Assembly
+                  </button>
+                  <div style={{ fontSize: "11px", color: "#4B5563", textAlign: "center" }}>
+                    Download a JSON file with all URLs and scripts to assemble locally with Ken Burns effect
+                  </div>
+                </div>
               )}
               {assembling && <div style={{ marginTop: "16px", fontSize: "12px", color: "#4B5563" }}>You can close this tab and come back — your videos will be waiting when you return.</div>}
             </div>
