@@ -93,7 +93,25 @@ export async function submitAnimations(imageUrls, animatedSceneIndexes, motionPr
   return res.json(); // { jobs: [{sceneIndex, jobId, status}] }
 }
 
-export async function getModels(type, session) {
+export async function assembleVideo(jobData, session) {
+  const res = await fetch(`${BASE}/assemble-video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...jobData, session }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function checkAssemblyStatus(jobId, language, session) {
+  const res = await fetch(`${BASE}/assembly-status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jobId, language, session }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
   const res = await fetch(`${BASE}/models?type=${type}`, {
     headers: { "Content-Type": "application/json", "x-session": JSON.stringify(session) },
   });

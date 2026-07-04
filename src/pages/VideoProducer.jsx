@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { translateScript, generatePrompts, submitImages, checkJobs, submitAnimations, checkCost, saveToAirtable } from "../lib/api";
+import { translateScript, generatePrompts, submitImages, checkJobs, submitAnimations, checkCost, saveToAirtable, assembleVideo, checkAssemblyStatus } from "../lib/api";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -301,6 +301,29 @@ function JobLogScreen({ jobs, onClose }) {
   const twilaCredits = jobs.filter(j => j.producer === "Twila").reduce((sum, j) => sum + j.credits, 0);
   const genesisCredits = jobs.filter(j => j.producer === "Genesis").reduce((sum, j) => sum + j.credits, 0);
 
+  const exportCSV = () => {
+    const headers = ["Title", "Channel", "Client", "Language", "Producer", "Image Model", "Video Model", "Credits Used", "Date"];
+    const rows = jobs.map(j => [
+      j.title || "",
+      j.channel || "",
+      j.client || "",
+      j.language === "both" ? "EN + ES" : j.language === "es" ? "ES" : "EN",
+      j.producer || "",
+      j.imageModel || "",
+      j.videoModel || "",
+      j.credits || "",
+      j.date || "",
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `videoforge-jobs-${new Date().toLocaleDateString("en-US").replace(/\//g, "-")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div style={{ maxWidth: "900px", margin: "0 auto", padding: "0 32px 40px", animation: "fadeIn 0.3s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "28px" }}>
@@ -308,7 +331,14 @@ function JobLogScreen({ jobs, onClose }) {
           <div style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "-0.5px" }}>Job Log</div>
           <div style={{ color: "#6B7280", fontSize: "14px" }}>All videos produced through VideoForge</div>
         </div>
-        <button onClick={onClose} style={{ ...ghostBtn, padding: "8px 16px", fontSize: "13px" }}>← Back</button>
+        <div style={{ display: "flex", gap: "10px" }}>
+          {jobs.length > 0 && (
+            <button onClick={exportCSV} style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid rgba(201,151,58,0.4)", background: "rgba(201,151,58,0.08)", color: "#C9973A", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+              ↓ Export CSV
+            </button>
+          )}
+          <button onClick={onClose} style={{ ...ghostBtn, padding: "8px 16px", fontSize: "13px" }}>← Back</button>
+        </div>
       </div>
 
       {/* Credit summary */}
@@ -403,6 +433,11 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const [imageProgress, setImageProgress] = useState([]); // per-scene status
   const [animationJobIds, setAnimationJobIds] = useState({});
   const [animationProgress, setAnimationProgress] = useState({});
+  const [assembling, setAssembling] = useState(false);
+  const [assemblyJobId, setAssemblyJobId] = useState(null);
+  const [enVideoUrl, setEnVideoUrl] = useState(null);
+  const [esVideoUrl, setEsVideoUrl] = useState(null);
+  const assemblyPollRef = useRef(null);
   const [animationUrls, setAnimationUrls] = useState({});
   const pollRef = useRef(null);
   const animPollRef = useRef(null);
@@ -622,6 +657,43 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
       });
   };
 
+  const handleAssemble = () => {
+    setAssembling(true);
+    const jobId = `vf-${Date.now()}`;
+    setAssemblyJobId(jobId);
+
+    const jobData = {
+      jobId,
+      imageUrls: images,
+      animationUrls,
+      enScript: script,
+      esScript: spanishScript,
+      language,
+      title: videoTitle,
+    };
+
+    assembleVideo(jobData, session)
+      .then(() => {
+        assemblyPollRef.current = setInterval(async () => {
+          try {
+            const status = await checkAssemblyStatus(jobId, language, session);
+            if (status.enUrl) setEnVideoUrl(status.enUrl);
+            if (status.esUrl) setEsVideoUrl(status.esUrl);
+            if (status.allReady) {
+              clearInterval(assemblyPollRef.current);
+              setAssembling(false);
+            }
+          } catch (err) {
+            console.error("Assembly poll error:", err.message);
+          }
+        }, 10000);
+      })
+      .catch(err => {
+        setAssembling(false);
+        alert("Assembly error: " + err.message);
+      });
+  };
+
   const handleSave = () => {
     setSaving(true);
     const jobData = {
@@ -655,6 +727,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const handleReset = () => {
     if (pollRef.current) clearInterval(pollRef.current);
     if (animPollRef.current) clearInterval(animPollRef.current);
+    if (assemblyPollRef.current) clearInterval(assemblyPollRef.current);
     setStep(1); setChannel(""); setClientName(""); setLanguage("both");
     setScript(""); setSpanishScript(""); setPrompts(MOCK_PROMPTS);
     setImages([]); setRejectedImages(new Set()); setAnimationReady(false);
@@ -664,6 +737,8 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
     setQualityTier("standard"); setPreferenceSaved(false);
     setImageJobIds([]); setImageProgress([]); setAnimationJobIds({});
     setAnimationProgress({}); setAnimationUrls({});
+    setAssembling(false); setAssemblyJobId(null);
+    setEnVideoUrl(null); setEsVideoUrl(null);
   };
 
   // ── Screens ──────────────────────────────────────────────────────────────
@@ -1280,26 +1355,70 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
         {step === 6 && (
           <div style={{ textAlign: "center", padding: "40px 0", animation: "fadeIn 0.3s ease" }}>
             <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "rgba(34,197,94,0.15)", border: "2px solid #22C55E", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px", margin: "0 auto 20px" }}>✓</div>
-            <div style={{ fontSize: "26px", fontWeight: 700, letterSpacing: "-0.5px", marginBottom: "8px" }}>{videoTitle} is ready to assemble</div>
+            <div style={{ fontSize: "26px", fontWeight: 700, letterSpacing: "-0.5px", marginBottom: "8px" }}>{videoTitle}</div>
             <div style={{ color: "#6B7280", fontSize: "14px", marginBottom: "32px" }}>
-              Saved to Airtable · Status: Ready to Assemble · Logged by {producer}
-              {isOther && clientName && ` · Client: ${clientName}`}
+              Logged by {producer}{isOther && clientName && ` · Client: ${clientName}`}
             </div>
 
+            {/* Status badges */}
             <div style={{ display: "flex", gap: "16px", justifyContent: "center", marginBottom: "32px" }}>
-              {isBilingual ? (<><div style={summaryBadge("#22C55E")}>🇺🇸 English MP4</div><div style={summaryBadge("#22C55E")}>🇪🇸 Spanish MP4</div></>) :
-                isSpanishOnly ? <div style={summaryBadge("#22C55E")}>🇪🇸 Spanish MP4</div> :
-                  <div style={summaryBadge("#22C55E")}>🇺🇸 English MP4</div>}
-              <div style={summaryBadge("#C9973A")}>Airtable ✓</div>
+              {isBilingual ? (<><div style={summaryBadge("#22C55E")}>🇺🇸 English</div><div style={summaryBadge("#22C55E")}>🇪🇸 Spanish</div></>) :
+                isSpanishOnly ? <div style={summaryBadge("#22C55E")}>🇪🇸 Spanish</div> :
+                  <div style={summaryBadge("#22C55E")}>🇺🇸 English</div>}
               <div style={summaryBadge("#6366F1")}>Job Log ✓</div>
             </div>
 
-            <div style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "12px", padding: "20px", maxWidth: "520px", margin: "0 auto 32px", textAlign: "left" }}>
-              <div style={{ fontSize: "12px", color: "#9CA3AF", fontWeight: 600, marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Run locally to assemble</div>
-              <code style={{ fontSize: "13px", color: "#C9973A", lineHeight: "1.8" }}>
-                cd "C:\Users\twila\Downloads\Claude Skills & Resources\woh-slideshow-pipeline"<br />
-                node woh-batch-assemble.js
-              </code>
+            {/* Assembly section */}
+            <div style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "16px", padding: "28px", maxWidth: "560px", margin: "0 auto 32px" }}>
+              <div style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px" }}>
+                {assembling ? "⏳ Assembling your video..." : enVideoUrl || esVideoUrl ? "✅ Videos Ready!" : "Ready to Assemble"}
+              </div>
+              <div style={{ fontSize: "13px", color: "#6B7280", marginBottom: "24px" }}>
+                {assembling
+                  ? "Fish Audio is generating voiceovers and FFmpeg is stitching everything together. This takes 3-5 minutes."
+                  : enVideoUrl || esVideoUrl
+                    ? "Your finished videos are ready to download!"
+                    : "Click below to generate voiceovers and assemble your finished MP4s."}
+              </div>
+
+              {/* Download links */}
+              {(enVideoUrl || esVideoUrl) && (
+                <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginBottom: "20px" }}>
+                  {enVideoUrl && (
+                    <a href={enVideoUrl} download={`${videoTitle}-EN.mp4`} style={{ padding: "12px 24px", borderRadius: "10px", background: "linear-gradient(135deg, #C9973A, #E8B85A)", color: "#0F1117", fontSize: "14px", fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: "8px" }}>
+                      ↓ Download 🇺🇸 EN
+                    </a>
+                  )}
+                  {esVideoUrl && (
+                    <a href={esVideoUrl} download={`${videoTitle}-ES.mp4`} style={{ padding: "12px 24px", borderRadius: "10px", background: "linear-gradient(135deg, #C9973A, #E8B85A)", color: "#0F1117", fontSize: "14px", fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: "8px" }}>
+                      ↓ Download 🇪🇸 ES
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Assemble button */}
+              {!enVideoUrl && !esVideoUrl && (
+                <button
+                  onClick={handleAssemble}
+                  disabled={assembling}
+                  style={{
+                    ...primaryBtn(assembling),
+                    width: "100%", justifyContent: "center",
+                    padding: "16px",
+                  }}
+                >
+                  {assembling
+                    ? "Assembling... check back in a few minutes"
+                    : `🎬 Assemble ${isBilingual ? "EN + ES Videos" : isSpanishOnly ? "ES Video" : "EN Video"}`}
+                </button>
+              )}
+
+              {assembling && (
+                <div style={{ marginTop: "16px", fontSize: "12px", color: "#4B5563" }}>
+                  You can close this tab and come back — your videos will be waiting when you return.
+                </div>
+              )}
             </div>
 
             <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>

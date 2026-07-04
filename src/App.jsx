@@ -40,6 +40,7 @@ export default function App() {
     ...session,
     higgsfieldApiKey: userSettings.higgsfieldKey || null,
     claudeApiKey: userSettings.claudeKey || null,
+    fishApiKey: userSettings.fishKey || null,
     airtableApiKey: userSettings.airtableKey || null,
     airtableBase: userSettings.airtableBase || null,
     airtableTable: userSettings.airtableTable || null,

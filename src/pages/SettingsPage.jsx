@@ -5,6 +5,7 @@ const STORAGE_KEY = "videoforge:userSettings";
 export default function SettingsPage({ session, onBack }) {
   const [higgsfieldKey, setHiggsfieldKey] = useState("");
   const [claudeKey, setClaudeKey] = useState("");
+  const [fishKey, setFishKey] = useState("");
   const [airtableKey, setAirtableKey] = useState("");
   const [airtableBase, setAirtableBase] = useState("");
   const [airtableTable, setAirtableTable] = useState("");
@@ -20,6 +21,7 @@ export default function SettingsPage({ session, onBack }) {
         const s = JSON.parse(raw);
         setHiggsfieldKey(s.higgsfieldKey || "");
         setClaudeKey(s.claudeKey || "");
+        setFishKey(s.fishKey || "");
         setAirtableKey(s.airtableKey || "");
         setAirtableBase(s.airtableBase || "");
         setAirtableTable(s.airtableTable || "");
@@ -28,7 +30,7 @@ export default function SettingsPage({ session, onBack }) {
   }, []);
 
   const handleSave = () => {
-    const settings = { higgsfieldKey, claudeKey, airtableKey, airtableBase, airtableTable };
+    const settings = { higgsfieldKey, claudeKey, fishKey, airtableKey, airtableBase, airtableTable };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -82,6 +84,14 @@ export default function SettingsPage({ session, onBack }) {
               <PasswordField label="API Key" value={claudeKey} onChange={setClaudeKey} show={showKeys} placeholder="sk-ant-..." />
             </Section>
 
+            {/* Fish Audio */}
+            <Section title="Fish Audio" required>
+              <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "10px" }}>
+                Get your API key from <a href="https://fish.audio" target="_blank" style={{ color: "#C9973A" }}>fish.audio</a> → Account → API Keys. Used for voiceover generation during video assembly.
+              </div>
+              <PasswordField label="API Key" value={fishKey} onChange={setFishKey} show={showKeys} placeholder="fish_..." />
+            </Section>
+
             {/* Airtable (optional) */}
             <Section title="Airtable" subtitle="Optional — for saving job history">
               <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "12px" }}>
@@ -108,11 +118,11 @@ export default function SettingsPage({ session, onBack }) {
               <span style={{ fontSize: "12px", color: "#4B5563" }}>Keys are masked by default for security</span>
             </div>
 
-            <button onClick={handleSave} disabled={!higgsfieldKey || !claudeKey} style={{
+            <button onClick={handleSave} disabled={!higgsfieldKey || !claudeKey || !fishKey} style={{
               width: "100%", padding: "14px", borderRadius: "10px", border: "none",
-              background: !higgsfieldKey || !claudeKey ? "#2A2D3A" : "linear-gradient(135deg, #C9973A, #E8B85A)",
-              color: !higgsfieldKey || !claudeKey ? "#4B5563" : "#0F1117",
-              fontSize: "14px", fontWeight: 700, cursor: !higgsfieldKey || !claudeKey ? "not-allowed" : "pointer",
+              background: !higgsfieldKey || !claudeKey || !fishKey ? "#2A2D3A" : "linear-gradient(135deg, #C9973A, #E8B85A)",
+              color: !higgsfieldKey || !claudeKey || !fishKey ? "#4B5563" : "#0F1117",
+              fontSize: "14px", fontWeight: 700, cursor: !higgsfieldKey || !claudeKey || !fishKey ? "not-allowed" : "pointer",
             }}>
               {saved ? "✓ Settings Saved!" : "Save Settings →"}
             </button>

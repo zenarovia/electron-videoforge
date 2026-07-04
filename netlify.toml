@@ -3,6 +3,12 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[functions]
+  node_bundler = "esbuild"
+
+[functions."assemble-video"]
+  timeout = 900
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
