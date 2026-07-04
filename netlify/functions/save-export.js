@@ -24,7 +24,12 @@ exports.handler = async (event) => {
   const results = { blobSaved: false, errors: [] };
 
   try {
-    const store = getStore({ name: "videoforge-jobs", consistency: "strong" });
+    const store = getStore({
+      name: "videoforge-jobs",
+      consistency: "strong",
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_AUTH_TOKEN,
+    });
     await store.set(`job-${jobId}`, jsonContent);
     results.blobSaved = true;
     console.log("Blob save success for job:", jobId);
