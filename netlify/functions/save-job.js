@@ -45,10 +45,11 @@ exports.handler = async (event) => {
     const airtableRes = await fetch(`https://api.airtable.com/v0/${baseId}/${tableId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${airtableKey}` },
-      body: JSON.stringify({ fields }),
+      body: JSON.stringify({ fields, typecast: true }),
     });
 
     const data = await airtableRes.json();
+    console.log("Airtable response:", JSON.stringify(data).substring(0, 500));
     if (data.error) throw new Error(data.error.message);
 
     return {
