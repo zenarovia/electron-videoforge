@@ -112,6 +112,7 @@ export async function checkAssemblyStatus(jobId, language, session) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+export async function getModels(type, session) {
   const res = await fetch(`${BASE}/models?type=${type}`, {
     headers: { "Content-Type": "application/json", "x-session": JSON.stringify(session) },
   });
