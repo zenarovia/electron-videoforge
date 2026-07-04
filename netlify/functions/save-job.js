@@ -9,6 +9,9 @@ exports.handler = async (event) => {
   const baseId = session?.isAdmin ? process.env.AIRTABLE_JOBS_BASE : session?.airtableBase;
   const tableId = session?.isAdmin ? process.env.AIRTABLE_JOBS_TABLE : session?.airtableTable;
 
+  // Log what we have for debugging
+  console.log("Save job — isAdmin:", session?.isAdmin, "hasKey:", !!airtableKey, "hasBase:", !!baseId, "hasTable:", !!tableId);
+
   if (!airtableKey || !baseId || !tableId) {
     return {
       statusCode: 200,
