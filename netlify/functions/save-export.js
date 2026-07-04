@@ -1,23 +1,23 @@
 // netlify/functions/save-export.js
-// Automatically saves VideoForge job JSON to:
+// Saves VideoForge job JSON to:
 //   1. Netlify Blobs (store: videoforge-jobs, key: job-{jobId})
 //   2. Google Drive (folder: 157fBxWHDt7efT_kmBVRbgEwo0_BWISGs)
 //
 // Required Netlify env vars:
-//   NETLIFY_AUTH_TOKEN  — already set (used by Blobs)
-//   GOOGLE_SERVICE_ACCOUNT_JSON — paste the full service account JSON as a single-line string
+//   NETLIFY_AUTH_TOKEN          — already set
+//   NETLIFY_SITE_ID             — already set
+//   GOOGLE_SERVICE_ACCOUNT_JSON — paste full service account JSON as one-line string
 
-import { getStore } from "@netlify/blobs";
+const { getStore } = require("@netlify/blobs");
 
 const DRIVE_FOLDER_ID = "157fBxWHDt7efT_kmBVRbgEwo0_BWISGs";
-
-// ── Google Drive upload via service account ────────────────────────────────────
-// We use the Drive REST API directly (no SDK needed) with a JWT-signed bearer token.
 
 async function getGoogleAccessToken(serviceAccountJson) {
   const sa = JSON.parse(serviceAccountJson);
 
-  // Build JWT header + claim
+  const b64url = (obj) =>
+    Buffer.from(JSON.stringify(obj)).toString("base64url");
+
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const claim = {
@@ -28,40 +28,21 @@ async function getGoogleAccessToken(serviceAccountJson) {
     exp: now + 3600,
   };
 
-  // Base64url encode
-  const b64url = (obj) =>
-    Buffer.from(JSON.stringify(obj)).toString("base64url");
+  const unsigned = `${b64url(header)}.${b64url(claim)}`;
 
-  const headerB64 = b64url(header);
-  const claimB64 = b64url(claim);
-  const unsigned = `${headerB64}.${claimB64}`;
-
-  // Sign with RSA private key using Web Crypto (available in Netlify Edge-compatible functions)
-  const pemKey = sa.private_key;
-  const pemBody = pemKey
+  const pemBody = sa.private_key
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
     .replace(/\s/g, "");
-  const keyBuffer = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));
+  const keyBuffer = Buffer.from(pemBody, "base64");
 
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    keyBuffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
+  const crypto = require("crypto");
+  const sign = crypto.createSign("RSA-SHA256");
+  sign.update(unsigned);
+  const signature = sign.sign({ key: `-----BEGIN PRIVATE KEY-----\n${pemBody}\n-----END PRIVATE KEY-----`, format: "pem" }, "base64url");
 
-  const signatureBuffer = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    new TextEncoder().encode(unsigned)
-  );
+  const jwt = `${unsigned}.${signature}`;
 
-  const signatureB64 = Buffer.from(signatureBuffer).toString("base64url");
-  const jwt = `${unsigned}.${signatureB64}`;
-
-  // Exchange JWT for access token
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -81,13 +62,7 @@ async function getGoogleAccessToken(serviceAccountJson) {
 }
 
 async function uploadToDrive(accessToken, fileName, jsonContent, folderId) {
-  const metadata = {
-    name: fileName,
-    parents: [folderId],
-    mimeType: "application/json",
-  };
-
-  // Multipart upload
+  const metadata = { name: fileName, parents: [folderId], mimeType: "application/json" };
   const boundary = "vf-boundary-" + Date.now();
   const body = [
     `--${boundary}`,
@@ -118,47 +93,46 @@ async function uploadToDrive(accessToken, fileName, jsonContent, folderId) {
     throw new Error(`Drive upload failed: ${err}`);
   }
 
-  return uploadRes.json(); // { id, name, mimeType, ... }
+  return uploadRes.json();
 }
 
-// ── Handler ────────────────────────────────────────────────────────────────────
-
-export default async function handler(req, context) {
-  if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method not allowed" };
   }
 
   let jobData;
   try {
-    jobData = await req.json();
+    jobData = JSON.parse(event.body || "{}");
   } catch {
-    return new Response("Invalid JSON body", { status: 400 });
+    return { statusCode: 400, body: "Invalid JSON body" };
   }
 
   const jobId = jobData?.id;
   if (!jobId) {
-    return new Response("Missing job id", { status: 400 });
+    return { statusCode: 400, body: "Missing job id" };
   }
 
   const jsonContent = JSON.stringify(jobData, null, 2);
   const fileName = `${jobData.title || jobId}.json`;
   const results = { blobSaved: false, driveSaved: false, driveFileId: null, errors: [] };
 
-  // ── 1. Save to Netlify Blobs ─────────────────────────────────────────────────
+  // 1. Save to Netlify Blobs
   try {
     const store = getStore({
       name: "videoforge-jobs",
-      siteID: process.env.SITE_ID || process.env.NETLIFY_SITE_ID,
+      siteID: process.env.NETLIFY_SITE_ID,
       token: process.env.NETLIFY_AUTH_TOKEN,
     });
     await store.set(`job-${jobId}`, jsonContent);
     results.blobSaved = true;
+    console.log("Blob save success for job:", jobId);
   } catch (err) {
     results.errors.push(`Blob save failed: ${err.message}`);
-    console.error("Blob save error:", err);
+    console.error("Blob save error:", err.message);
   }
 
-  // ── 2. Upload to Google Drive ────────────────────────────────────────────────
+  // 2. Upload to Google Drive
   const saJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!saJson) {
     results.errors.push("GOOGLE_SERVICE_ACCOUNT_JSON env var not set");
@@ -168,17 +142,16 @@ export default async function handler(req, context) {
       const driveFile = await uploadToDrive(accessToken, fileName, jsonContent, DRIVE_FOLDER_ID);
       results.driveSaved = true;
       results.driveFileId = driveFile.id;
+      console.log("Drive upload success:", driveFile.id);
     } catch (err) {
       results.errors.push(`Drive upload failed: ${err.message}`);
-      console.error("Drive upload error:", err);
+      console.error("Drive upload error:", err.message);
     }
   }
 
-  // Return 200 even if one destination failed — don't break the export UX
-  return new Response(JSON.stringify(results), {
-    status: 200,
+  return {
+    statusCode: 200,
     headers: { "Content-Type": "application/json" },
-  });
-}
-
-export const config = { path: "/api/save-export" };
+    body: JSON.stringify(results),
+  };
+};
