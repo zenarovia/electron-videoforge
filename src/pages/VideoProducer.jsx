@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { translateScript, generatePrompts, submitImages, checkJobs, submitAnimations, checkCost, saveToAirtable, assembleVideo, checkAssemblyStatus, getUrlLog } from "../lib/api";
+import { translateScript, generatePrompts, submitImages, checkJobs, submitAnimations, checkCost, saveToAirtable, assembleVideo, checkAssemblyStatus, getUrlLog, saveExport } from "../lib/api";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -712,6 +712,17 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
       esScript: spanishScript,
       prompts,
     };
+
+    // ── Auto-save to Netlify Blobs + Google Drive (fire-and-forget) ──────────
+    saveExport(jobData).then(result => {
+      if (result) {
+        const saved = [result.blobSaved && "Blobs", result.driveSaved && "Drive"].filter(Boolean).join(" + ");
+        if (saved) console.log(`✅ Job auto-saved to: ${saved}`);
+        if (result.errors?.length) console.warn("⚠️ Auto-save partial errors:", result.errors);
+      }
+    });
+
+    // ── Local download (always happens, regardless of auto-save result) ──────
     const blob = new Blob([JSON.stringify(jobData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

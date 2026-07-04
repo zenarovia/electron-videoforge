@@ -105,11 +105,13 @@ export async function assembleVideo(jobData, session) {
   if (res.status !== 202 && res.status !== 200) throw new Error(await res.text());
   return { accepted: true };
 }
+
 export async function checkAssemblyStatus(jobId, session) {
   const res = await fetch(`${BASE}/assembly-status?jobId=${encodeURIComponent(jobId)}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
 // New: retrieve all saved URLs for a job
 export async function getUrlLog(jobId) {
   const res = await fetch(`${BASE}/get-url-log?jobId=${encodeURIComponent(jobId)}`);
@@ -123,4 +125,24 @@ export async function getModels(type, session) {
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+// New: auto-save job JSON to Netlify Blobs + Google Drive on export
+// Fire-and-forget — does not throw; logs errors to console only
+export async function saveExport(jobData) {
+  try {
+    const res = await fetch(`${BASE}/save-export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(jobData),
+    });
+    if (!res.ok) {
+      console.error("saveExport: server returned", res.status, await res.text());
+      return null;
+    }
+    return res.json();
+  } catch (err) {
+    console.error("saveExport: fetch failed", err.message);
+    return null;
+  }
 }
