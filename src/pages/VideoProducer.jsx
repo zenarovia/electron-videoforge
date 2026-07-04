@@ -482,18 +482,21 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const handleGenerateImages = () => {
     setGenerating(true);
     setImageProgress(new Array(8).fill("IN_QUEUE"));
+    setImages(new Array(8).fill(null));
 
     submitImages(prompts, imageModel, session)
       .then(data => {
-        const jobs = data.jobs; // [{index, requestId, endpoint, status}]
+        const jobs = data.jobs;
         setImageJobIds(jobs);
+        setGenerating(false);
+        setStep(4); // Move to Step 4 immediately — images fill in as they complete
 
         // Start polling every 4 seconds
         pollRef.current = setInterval(async () => {
           try {
             const result = await checkJobs(jobs, session);
             const newImages = new Array(8).fill(null).map((_, i) => images[i] || null);
-            const newProgress = new Array(8).fill("IN_QUEUE");
+            const newProgress = [...imageProgress];
 
             result.results.forEach(r => {
               newProgress[r.index] = r.status;
@@ -505,13 +508,10 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
             if (result.allDone) {
               clearInterval(pollRef.current);
-              setGenerating(false);
-              setStep(4);
             }
           } catch (err) {
-            clearInterval(pollRef.current);
-            setGenerating(false);
-            alert("Image polling error: " + err.message);
+            console.error("Image polling error:", err.message);
+            // Don't alert — just keep polling
           }
         }, 4000);
       })
