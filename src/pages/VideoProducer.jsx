@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { translateScript, generatePrompts, submitImages, checkJobs, submitAnimations, checkCost, saveToAirtable, assembleVideo, checkAssemblyStatus } from "../lib/api";
+import { translateScript, generatePrompts, submitImages, checkJobs, submitAnimations, checkCost, saveToAirtable, assembleVideo, checkAssemblyStatus, getUrlLog } from "../lib/api";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -24,7 +24,6 @@ const STYLE_MOODS = [
   { id: "custom", label: "Custom style...", style: "", kling_style: "" },
 ];
 
-// Quality tier presets
 const QUALITY_TIERS = [
   {
     id: "fast",
@@ -59,7 +58,6 @@ const QUALITY_TIERS = [
   },
 ];
 
-// All available models (in production: fetched from Higgsfield models_explore API)
 const ALL_IMAGE_MODELS = [
   { id: "nano_banana_flash", name: "Nano Banana Flash", credits: 0.8, desc: "Fastest generation, good for quick iterations" },
   { id: "nano_banana_2", name: "Nano Banana 2", credits: 1.5, desc: "Cinematic stills, excellent quality/speed balance" },
@@ -76,7 +74,6 @@ const ALL_VIDEO_MODELS = [
   { id: "cinematic_studio_video_v2", name: "Cinema Studio Video 2", credits: 12.0, desc: "Cinematic motion, high detail" },
   { id: "cinematic_studio_3_0", name: "Cinema Studio Video 3.0", credits: 14.0, desc: "Premium quality, most realistic motion" },
 ];
-
 
 const STEPS = [
   { id: 1, label: "Channel & Script" },
@@ -201,20 +198,17 @@ function AddChannelScreen({ onSave, onCancel, customChannels }) {
         </div>
       </div>
 
-      {/* Channel name */}
       <div style={{ marginBottom: "20px" }}>
         <Label>Channel Name</Label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Austin Food Scene, Daily Devotionals..." style={inputStyle} />
       </div>
 
-      {/* Niche */}
       <div style={{ marginBottom: "20px" }}>
         <Label>Niche / Topic</Label>
         <input value={niche} onChange={e => setNiche(e.target.value)} placeholder="e.g. local food culture, biblical devotionals, true crime history..." style={inputStyle} />
         <div style={{ fontSize: "12px", color: "#4B5563", marginTop: "6px" }}>Helps Claude write better scene prompts for this channel's content.</div>
       </div>
 
-      {/* Visual style mood */}
       <div style={{ marginBottom: "20px" }}>
         <Label>Visual Style</Label>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
@@ -232,19 +226,12 @@ function AddChannelScreen({ onSave, onCancel, customChannels }) {
         )}
         {mood === "custom" && (
           <div style={{ marginTop: "10px" }}>
-            <textarea
-              value={customStyle}
-              onChange={e => setCustomStyle(e.target.value)}
-              placeholder="e.g. cinematic film grain, warm sunset tones, shallow depth of field, photorealistic, 9:16 vertical"
-              rows={3}
-              style={{ ...inputStyle, resize: "vertical", fontSize: "13px" }}
-            />
+            <textarea value={customStyle} onChange={e => setCustomStyle(e.target.value)} placeholder="e.g. cinematic film grain, warm sunset tones, shallow depth of field, photorealistic, 9:16 vertical" rows={3} style={{ ...inputStyle, resize: "vertical", fontSize: "13px" }} />
             <div style={{ fontSize: "12px", color: "#4B5563", marginTop: "4px" }}>Always end with: photorealistic, 9:16 vertical</div>
           </div>
         )}
       </div>
 
-      {/* Default language */}
       <div style={{ marginBottom: "20px" }}>
         <Label>Default Language Output</Label>
         <div style={{ display: "flex", gap: "10px" }}>
@@ -261,11 +248,7 @@ function AddChannelScreen({ onSave, onCancel, customChannels }) {
         <div style={{ fontSize: "12px", color: "#4B5563", marginTop: "6px" }}>Can be changed per video — this is just the default.</div>
       </div>
 
-      {/* Airtable (optional) */}
-      <div style={{
-        background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "12px",
-        padding: "18px 20px", marginBottom: "28px",
-      }}>
+      <div style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "12px", padding: "18px 20px", marginBottom: "28px" }}>
         <div style={{ fontSize: "13px", color: "#9CA3AF", fontWeight: 600, marginBottom: "14px" }}>
           Airtable Integration <span style={{ fontWeight: 400, color: "#4B5563" }}>(optional)</span>
         </div>
@@ -304,15 +287,9 @@ function JobLogScreen({ jobs, onClose }) {
   const exportCSV = () => {
     const headers = ["Title", "Channel", "Client", "Language", "Producer", "Image Model", "Video Model", "Credits Used", "Date"];
     const rows = jobs.map(j => [
-      j.title || "",
-      j.channel || "",
-      j.client || "",
+      j.title || "", j.channel || "", j.client || "",
       j.language === "both" ? "EN + ES" : j.language === "es" ? "ES" : "EN",
-      j.producer || "",
-      j.imageModel || "",
-      j.videoModel || "",
-      j.credits || "",
-      j.date || "",
+      j.producer || "", j.imageModel || "", j.videoModel || "", j.credits || "", j.date || "",
     ]);
     const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -341,16 +318,13 @@ function JobLogScreen({ jobs, onClose }) {
         </div>
       </div>
 
-      {/* Credit summary */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "28px" }}>
         {[
           { label: "Total Credits Used", value: totalCredits.toFixed(1), sub: `~$${(totalCredits * 0.0625).toFixed(2)}`, color: "#C9973A" },
           { label: "Twila", value: twilaCredits.toFixed(1), sub: `~$${(twilaCredits * 0.0625).toFixed(2)}`, color: "#6366F1" },
           { label: "Genesis", value: genesisCredits.toFixed(1), sub: `~$${(genesisCredits * 0.0625).toFixed(2)}`, color: "#22C55E" },
         ].map(stat => (
-          <div key={stat.label} style={{
-            background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "12px", padding: "18px 20px",
-          }}>
+          <div key={stat.label} style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "12px", padding: "18px 20px" }}>
             <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: 600 }}>{stat.label}</div>
             <div style={{ fontSize: "28px", fontWeight: 700, color: stat.color, letterSpacing: "-0.5px" }}>{stat.value}</div>
             <div style={{ fontSize: "12px", color: "#4B5563", marginTop: "4px" }}>{stat.sub} @ $0.0625/credit</div>
@@ -358,7 +332,6 @@ function JobLogScreen({ jobs, onClose }) {
         ))}
       </div>
 
-      {/* Job table */}
       {jobs.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 0", color: "#4B5563" }}>
           <div style={{ fontSize: "32px", marginBottom: "12px" }}>📋</div>
@@ -367,33 +340,18 @@ function JobLogScreen({ jobs, onClose }) {
         </div>
       ) : (
         <div style={{ background: "#1A1D27", borderRadius: "12px", border: "2px solid #2A2D3A", overflow: "hidden" }}>
-          {/* Table header */}
-          <div style={{
-            display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 0.8fr 0.8fr",
-            padding: "12px 20px", borderBottom: "1px solid #2A2D3A",
-            fontSize: "11px", color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px",
-          }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 0.8fr 0.8fr", padding: "12px 20px", borderBottom: "1px solid #2A2D3A", fontSize: "11px", color: "#6B7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
             <div>Title</div><div>Channel</div><div>Language</div><div>Producer</div><div>Credits</div><div>Date</div>
           </div>
           {jobs.map((job, i) => (
-            <div key={i} style={{
-              display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 0.8fr 0.8fr",
-              padding: "14px 20px",
-              borderBottom: i < jobs.length - 1 ? "1px solid #1E2130" : "none",
-              fontSize: "13px",
-            }}>
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 0.8fr 0.8fr", padding: "14px 20px", borderBottom: i < jobs.length - 1 ? "1px solid #1E2130" : "none", fontSize: "13px" }}>
               <div style={{ color: "#E8E8E8", fontWeight: 500 }}>
                 {job.title}
                 {job.client && <div style={{ fontSize: "11px", color: "#6B7280", marginTop: "2px" }}>Client: {job.client}</div>}
               </div>
               <div style={{ color: "#9CA3AF" }}>{job.channel}</div>
-              <div>
-                {job.language === "both" ? <span>🇺🇸🇪🇸</span> : job.language === "es" ? <span>🇪🇸</span> : <span>🇺🇸</span>}
-              </div>
-              <div style={{
-                color: job.producer === "Genesis" ? "#22C55E" : "#6366F1",
-                fontWeight: 600, fontSize: "12px",
-              }}>{job.producer}</div>
+              <div>{job.language === "both" ? <span>🇺🇸🇪🇸</span> : job.language === "es" ? <span>🇪🇸</span> : <span>🇺🇸</span>}</div>
+              <div style={{ color: job.producer === "Genesis" ? "#22C55E" : "#6366F1", fontWeight: 600, fontSize: "12px" }}>{job.producer}</div>
               <div style={{ color: "#C9973A", fontWeight: 600 }}>{job.credits}</div>
               <div style={{ color: "#6B7280" }}>{job.date}</div>
             </div>
@@ -407,7 +365,7 @@ function JobLogScreen({ jobs, onClose }) {
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function VideoProducer({ session, onSettings, onLogout }) {
-  const [screen, setScreen] = useState("main"); // main | addChannel | jobLog
+  const [screen, setScreen] = useState("main");
   const [step, setStep] = useState(1);
   const [customChannels, setCustomChannels] = useState([]);
   const [channel, setChannel] = useState("");
@@ -426,11 +384,11 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const [imageModel, setImageModel] = useState("nano_banana_2");
   const [videoModel, setVideoModel] = useState("kling3_0_turbo");
   const [qualityTier, setQualityTier] = useState("standard");
-  const [showModelBrowser, setShowModelBrowser] = useState(null); // "image" | "video" | null
+  const [showModelBrowser, setShowModelBrowser] = useState(null);
   const [costPreview, setCostPreview] = useState(null);
   const [checkingCost, setCheckingCost] = useState(false);
   const [imageJobIds, setImageJobIds] = useState([]);
-  const [imageProgress, setImageProgress] = useState([]); // per-scene status
+  const [imageProgress, setImageProgress] = useState([]);
   const [animationJobIds, setAnimationJobIds] = useState({});
   const [animationProgress, setAnimationProgress] = useState({});
   const [assembling, setAssembling] = useState(false);
@@ -441,6 +399,9 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const [animationUrls, setAnimationUrls] = useState({});
   const pollRef = useRef(null);
   const animPollRef = useRef(null);
+  // ✅ FIX: refs to avoid stale closures in polling intervals
+  const imageJobsRef = useRef([]);
+  const imageModelRef = useRef("nano_banana_2");
   const [animatedScenes, setAnimatedScenes] = useState(new Set([0]));
   const [animationTier, setAnimationTier] = useState("minimal");
   const [animating, setAnimating] = useState(false);
@@ -462,11 +423,9 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const isSpanishOnly = language === "es";
   const isOther = selectedChannel?.isOther;
 
-  // When channel is selected, apply its default language if it has one
   const [savedPreference, setSavedPreference] = useState(false);
   const [preferenceSaved, setPreferenceSaved] = useState(false);
 
-  // Load saved model preference on mount
   useEffect(() => {
     const load = async () => {
       try {
@@ -478,9 +437,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
           setQualityTier(pref.qualityTier || "custom");
           setSavedPreference(true);
         }
-      } catch (e) {
-        // No saved preference yet — use defaults
-      }
+      } catch (e) {}
     };
     load();
   }, []);
@@ -488,10 +445,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const handleSavePreference = async () => {
     try {
       await window.storage.set("videoforge:modelPreference", JSON.stringify({
-        imageModel,
-        videoModel,
-        qualityTier,
-        savedAt: new Date().toLocaleDateString(),
+        imageModel, videoModel, qualityTier, savedAt: new Date().toLocaleDateString(),
       }));
       setPreferenceSaved(true);
       setSavedPreference(true);
@@ -511,45 +465,55 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
     setGenerating(true);
     const style = selectedChannel?.style || "";
     generatePrompts(script, style, session)
-      .then(data => { setPrompts(data.prompts); setGenerating(false); setStep(needsTranslation ? 3 : 3); })
+      .then(data => { setPrompts(data.prompts); setGenerating(false); setStep(3); })
       .catch(err => { alert("Prompt generation error: " + err.message); setGenerating(false); });
   };
 
- const handleGenerateImages = () => {
-     const currentJobId = assemblyJobId || `vf-${Date.now()}`;
-     if (!assemblyJobId) setAssemblyJobId(currentJobId);
+  const handleGenerateImages = () => {
+    // ✅ FIX 1: Capture jobId and imageModel NOW before any async state changes
+    const currentJobId = assemblyJobId || `vf-${Date.now()}`;
+    if (!assemblyJobId) setAssemblyJobId(currentJobId);
+    const currentImageModel = imageModel; // capture current value synchronously
+    imageModelRef.current = currentImageModel;
+
     setGenerating(true);
     setImageProgress(new Array(8).fill("IN_QUEUE"));
     setImages(new Array(8).fill(null));
 
-    submitImages(prompts, imageModel, session)
+    // ✅ FIX 2: Use captured model value, not state (which may be stale)
+    submitImages(prompts, currentImageModel, session)
       .then(data => {
-        const jobs = data.jobs;
-        setImageJobIds(jobs);
+        const submittedJobs = data.jobs;
+        // ✅ FIX 3: Store jobs in ref so polling interval always has fresh value
+        imageJobsRef.current = submittedJobs;
+        setImageJobIds(submittedJobs);
         setGenerating(false);
-        setStep(4); // Move to Step 4 immediately — images fill in as they complete
+        setStep(4);
 
-        // Start polling every 4 seconds
         pollRef.current = setInterval(async () => {
           try {
-            const result = await checkJobs(jobs, session, currentJobId);
-            const newImages = new Array(8).fill(null).map((_, i) => images[i] || null);
-            const newProgress = [...imageProgress];
+            // ✅ FIX 4: Use ref (not stale closure variable) for both jobs and jobId
+            const result = await checkJobs(imageJobsRef.current, session, currentJobId);
 
-            result.results.forEach(r => {
-              newProgress[r.index] = r.status;
-              if (r.status === "COMPLETED" && r.url) newImages[r.index] = r.url;
+            // ✅ FIX 5: Use functional state updates to avoid stale image/progress state
+            setImages(prev => {
+              const newImages = [...prev];
+              result.results.forEach(r => {
+                if (r.status === "COMPLETED" && r.url) newImages[r.index] = r.url;
+              });
+              return newImages;
             });
-
-            setImageProgress(newProgress);
-            setImages(newImages);
+            setImageProgress(prev => {
+              const newProgress = [...prev];
+              result.results.forEach(r => { newProgress[r.index] = r.status; });
+              return newProgress;
+            });
 
             if (result.allDone) {
               clearInterval(pollRef.current);
             }
           } catch (err) {
             console.error("Image polling error:", err.message);
-            // Don't alert — just keep polling
           }
         }, 4000);
       })
@@ -571,7 +535,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
   const selectedImageModel = ALL_IMAGE_MODELS.find(m => m.id === imageModel);
   const selectedVideoModel = ALL_VIDEO_MODELS.find(m => m.id === videoModel);
 
-  // Live cost calculation (mirrors get_cost:true API call)
   const imageCredits = (selectedImageModel?.credits || 1.5) * 8;
   const animationCredits = animatedScenes.size * (selectedVideoModel?.credits || 7.5);
   const totalCredits = Math.round((imageCredits + animationCredits) * 10) / 10;
@@ -579,7 +542,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
   const handleCheckCost = () => {
     setCheckingCost(true);
-    // In production: call Higgsfield with get_cost:true for exact figure
     setTimeout(() => {
       setCostPreview({
         imageCredits: imageCredits.toFixed(1),
@@ -614,31 +576,38 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
     setAnimating(true);
     const animatedList = [...animatedScenes].sort((a, b) => a - b);
     const motionPrompt = `${selectedChannel?.kling_style || "slow, cinematic"}. Gentle natural movement. Warm atmospheric light.`;
+    const currentAssemblyJobId = assemblyJobId; // capture for closure
 
     submitAnimations(images, animatedList, motionPrompt, videoModel, session)
       .then(data => {
-        const jobs = data.jobs; // [{sceneIndex, requestId, endpoint, status}]
-        setAnimationJobIds(jobs);
+        const animJobs = data.jobs;
+        setAnimationJobIds(animJobs);
 
         const initialProgress = {};
         animatedList.forEach(idx => { initialProgress[idx] = "IN_QUEUE"; });
         setAnimationProgress(initialProgress);
 
-        // Poll every 6 seconds for animation completion
         animPollRef.current = setInterval(async () => {
           try {
-            const result = await checkJobs(jobs, session, assemblyJobId);
-            const newUrls = { ...animationUrls };
-            const newProgress = { ...animationProgress };
+            // ✅ FIX: pass captured assemblyJobId for URL logging
+            const result = await checkJobs(animJobs, session, currentAssemblyJobId);
 
-            result.results.forEach((r) => {
-              const sceneIdx = r.sceneIndex !== undefined ? r.sceneIndex : r.index;
-              newProgress[sceneIdx] = r.status;
-              if (r.status === "COMPLETED" && r.url) newUrls[sceneIdx] = r.url;
+            setAnimationUrls(prev => {
+              const newUrls = { ...prev };
+              result.results.forEach(r => {
+                const sceneIdx = r.sceneIndex !== undefined ? r.sceneIndex : r.index;
+                if (r.status === "COMPLETED" && r.url) newUrls[sceneIdx] = r.url;
+              });
+              return newUrls;
             });
-
-            setAnimationProgress(newProgress);
-            setAnimationUrls(newUrls);
+            setAnimationProgress(prev => {
+              const newProgress = { ...prev };
+              result.results.forEach(r => {
+                const sceneIdx = r.sceneIndex !== undefined ? r.sceneIndex : r.index;
+                newProgress[sceneIdx] = r.status;
+              });
+              return newProgress;
+            });
 
             if (result.allDone) {
               clearInterval(animPollRef.current);
@@ -661,8 +630,8 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
 
   const handleAssemble = () => {
     setAssembling(true);
-    const jobId = `vf-${Date.now()}`;
-    setAssemblyJobId(jobId);
+    const jobId = assemblyJobId || `vf-${Date.now()}`;
+    if (!assemblyJobId) setAssemblyJobId(jobId);
 
     const jobData = {
       jobId,
@@ -692,10 +661,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
       title: videoTitle,
       channel: selectedChannel?.name || "Unknown",
       client: isOther ? clientName : undefined,
-      language,
-      producer,
-      imageModel,
-      videoModel,
+      language, producer, imageModel, videoModel,
       animationCount: animatedScenes.size,
       credits: totalCredits,
       sceneUrls: images,
@@ -703,23 +669,16 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
       date: new Date().toLocaleDateString("en-US"),
     };
     saveToAirtable(jobData, session)
-      .then(() => {
-        setJobs(prev => [{ ...jobData }, ...prev]);
-        setSaving(false);
-        setStep(6);
-      })
-      .catch(() => {
-        // Airtable save failed — still proceed, log locally
-        setJobs(prev => [{ ...jobData }, ...prev]);
-        setSaving(false);
-        setStep(6);
-      });
+      .then(() => { setJobs(prev => [{ ...jobData }, ...prev]); setSaving(false); setStep(6); })
+      .catch(() => { setJobs(prev => [{ ...jobData }, ...prev]); setSaving(false); setStep(6); });
   };
 
   const handleReset = () => {
     if (pollRef.current) clearInterval(pollRef.current);
     if (animPollRef.current) clearInterval(animPollRef.current);
     if (assemblyPollRef.current) clearInterval(assemblyPollRef.current);
+    imageJobsRef.current = [];
+    imageModelRef.current = "nano_banana_2";
     setStep(1); setChannel(""); setClientName(""); setLanguage("both");
     setScript(""); setSpanishScript(""); setPrompts(MOCK_PROMPTS);
     setImages([]); setRejectedImages(new Set()); setAnimationReady(false);
@@ -740,11 +699,7 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
       <div style={{ minHeight: "100vh", background: "#0F1117", color: "#E8E8E8", fontFamily: "'Inter', -apple-system, sans-serif" }}>
         <AppHeader screen="addChannel" jobs={jobs} onNav={setScreen} session={session} onSettings={onSettings} onLogout={onLogout} />
         <div style={{ paddingTop: "24px" }}>
-          <AddChannelScreen
-            customChannels={customChannels}
-            onSave={(ch) => { setCustomChannels(prev => [...prev, ch]); setScreen("main"); }}
-            onCancel={() => setScreen("main")}
-          />
+          <AddChannelScreen customChannels={customChannels} onSave={(ch) => { setCustomChannels(prev => [...prev, ch]); setScreen("main"); }} onCancel={() => setScreen("main")} />
         </div>
       </div>
     );
@@ -807,16 +762,11 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
             <div style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "-0.5px", marginBottom: "6px" }}>Choose your channel & paste your script</div>
             <div style={{ color: "#6B7280", fontSize: "14px", marginBottom: "28px" }}>The tool handles everything after this — images, animation, translation, and Airtable.</div>
 
-            {/* Producer */}
             <div style={{ marginBottom: "20px" }}>
               <Label>Producer</Label>
               <div style={{ display: "flex", gap: "10px" }}>
                 {["Twila", "Genesis"].map(p => (
-                  <button key={p} onClick={() => setProducer(p)} style={{
-                    ...card(producer === p),
-                    padding: "10px 24px", fontSize: "13px",
-                    display: "flex", alignItems: "center", gap: "8px",
-                  }}>
+                  <button key={p} onClick={() => setProducer(p)} style={{ ...card(producer === p), padding: "10px 24px", fontSize: "13px", display: "flex", alignItems: "center", gap: "8px" }}>
                     <span style={{ fontSize: "16px" }}>{p === "Twila" ? "👩‍💼" : "👩‍💻"}</span>
                     {p}
                   </button>
@@ -824,23 +774,14 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               </div>
             </div>
 
-            {/* Channel */}
             <div style={{ marginBottom: isOther ? "12px" : "20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                 <Label style={{ margin: 0 }}>Channel</Label>
-                <button
-                  onClick={() => setScreen("addChannel")}
-                  style={{ fontSize: "12px", color: "#C9973A", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}
-                >
-                  + Add Channel
-                </button>
+                <button onClick={() => setScreen("addChannel")} style={{ fontSize: "12px", color: "#C9973A", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>+ Add Channel</button>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
                 {allChannels.map(c => (
-                  <button key={c.id} onClick={() => handleChannelSelect(c)} style={{
-                    ...card(channel === c.id),
-                    display: "flex", flexDirection: "column", gap: "2px",
-                  }}>
+                  <button key={c.id} onClick={() => handleChannelSelect(c)} style={{ ...card(channel === c.id), display: "flex", flexDirection: "column", gap: "2px" }}>
                     <span>{c.name}</span>
                     {!c.preset && <span style={{ fontSize: "10px", color: "#4B5563", fontWeight: 400 }}>Custom · {c.addedOn}</span>}
                   </button>
@@ -848,7 +789,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               </div>
             </div>
 
-            {/* Client name (Other only) */}
             {isOther && (
               <div style={{ marginBottom: "20px" }}>
                 <Label>Client Name</Label>
@@ -857,7 +797,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               </div>
             )}
 
-            {/* Language */}
             <div style={{ marginBottom: "20px" }}>
               <Label>Output Language</Label>
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
@@ -874,21 +813,17 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               </div>
             </div>
 
-            {/* Models */}
             <div style={{ marginBottom: "20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                 <Label style={{ margin: 0 }}>Generation Models</Label>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  {savedPreference && (
-                    <span style={{ fontSize: "11px", color: "#22C55E", fontWeight: 600 }}>✓ Saved preference loaded</span>
-                  )}
+                  {savedPreference && <span style={{ fontSize: "11px", color: "#22C55E", fontWeight: 600 }}>✓ Saved preference loaded</span>}
                   <button onClick={handleCheckCost} disabled={checkingCost} style={{ fontSize: "12px", color: "#C9973A", background: "rgba(201,151,58,0.1)", border: "1px solid rgba(201,151,58,0.3)", borderRadius: "6px", padding: "4px 12px", cursor: "pointer", fontWeight: 600 }}>
                     {checkingCost ? "Checking..." : "⚡ Check Credits"}
                   </button>
                 </div>
               </div>
 
-              {/* Quick tier presets */}
               <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
                 {QUALITY_TIERS.map(tier => (
                   <button key={tier.id} onClick={() => { setQualityTier(tier.id); setImageModel(tier.imageModel); setVideoModel(tier.videoModel); setCostPreview(null); }} style={{
@@ -907,7 +842,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                 ))}
               </div>
 
-              {/* Current selection + browse/save row */}
               <div style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "10px", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "4px" }}>Current selection</div>
@@ -918,22 +852,13 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
-                  <button
-                    onClick={() => setShowModelBrowser("image")}
-                    style={{ padding: "6px 12px", borderRadius: "7px", border: "1px solid #3A3D4A", background: "transparent", color: "#9CA3AF", fontSize: "12px", cursor: "pointer" }}
-                  >
-                    Browse Models
-                  </button>
-                  <button
-                    onClick={handleSavePreference}
-                    style={{ padding: "6px 12px", borderRadius: "7px", border: "1px solid rgba(201,151,58,0.4)", background: "rgba(201,151,58,0.08)", color: "#C9973A", fontSize: "12px", cursor: "pointer", fontWeight: 600 }}
-                  >
+                  <button onClick={() => setShowModelBrowser("image")} style={{ padding: "6px 12px", borderRadius: "7px", border: "1px solid #3A3D4A", background: "transparent", color: "#9CA3AF", fontSize: "12px", cursor: "pointer" }}>Browse Models</button>
+                  <button onClick={handleSavePreference} style={{ padding: "6px 12px", borderRadius: "7px", border: "1px solid rgba(201,151,58,0.4)", background: "rgba(201,151,58,0.08)", color: "#C9973A", fontSize: "12px", cursor: "pointer", fontWeight: 600 }}>
                     {preferenceSaved ? "✓ Saved!" : "Save as My Default"}
                   </button>
                 </div>
               </div>
 
-              {/* Cost preview */}
               {costPreview && (
                 <div style={{ marginTop: "12px", background: "rgba(201,151,58,0.06)", border: "1px solid rgba(201,151,58,0.25)", borderRadius: "10px", padding: "14px 16px" }}>
                   <div style={{ fontSize: "12px", color: "#C9973A", fontWeight: 700, marginBottom: "10px" }}>⚡ Estimated Credit Cost</div>
@@ -954,17 +879,13 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                       <div style={{ fontSize: "11px", color: "#6B7280" }}>credits per video</div>
                     </div>
                   </div>
-                  <div style={{ fontSize: "11px", color: "#4B5563", marginTop: "10px" }}>
-                    * Final total may vary if you change animation scenes in the next step.
-                  </div>
+                  <div style={{ fontSize: "11px", color: "#4B5563", marginTop: "10px" }}>* Final total may vary if you change animation scenes in the next step.</div>
                 </div>
               )}
 
-              {/* Model Browser Modal */}
               {showModelBrowser && (
                 <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
                   <div style={{ background: "#1A1D27", borderRadius: "16px", border: "2px solid #2A2D3A", width: "100%", maxWidth: "680px", maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                    {/* Modal header */}
                     <div style={{ padding: "20px 24px", borderBottom: "1px solid #2A2D3A", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
                         <div style={{ fontSize: "16px", fontWeight: 700 }}>Browse Models</div>
@@ -976,31 +897,19 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                         <button onClick={() => setShowModelBrowser(null)} style={{ padding: "6px 10px", borderRadius: "7px", border: "1px solid #3A3D4A", background: "transparent", color: "#9CA3AF", fontSize: "14px", cursor: "pointer" }}>✕</button>
                       </div>
                     </div>
-
-                    {/* Model list */}
                     <div style={{ padding: "16px 24px", overflowY: "auto", flex: 1 }}>
                       {(showModelBrowser === "image" ? ALL_IMAGE_MODELS : ALL_VIDEO_MODELS).map(m => {
                         const isSelected = showModelBrowser === "image" ? imageModel === m.id : videoModel === m.id;
                         return (
-                          <button
-                            key={m.id}
-                            onClick={() => {
-                              if (showModelBrowser === "image") { setImageModel(m.id); setQualityTier("custom"); }
-                              else { setVideoModel(m.id); setQualityTier("custom"); }
-                              setCostPreview(null);
-                              setShowModelBrowser(null);
-                            }}
-                            style={{
-                              width: "100%", padding: "14px 16px", borderRadius: "10px", marginBottom: "8px",
-                              border: isSelected ? "2px solid #C9973A" : "2px solid #2A2D3A",
-                              background: isSelected ? "rgba(201,151,58,0.08)" : "#0F1117",
-                              cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center",
-                            }}
-                          >
+                          <button key={m.id} onClick={() => {
+                            if (showModelBrowser === "image") { setImageModel(m.id); setQualityTier("custom"); }
+                            else { setVideoModel(m.id); setQualityTier("custom"); }
+                            setCostPreview(null);
+                            setShowModelBrowser(null);
+                          }} style={{ width: "100%", padding: "14px 16px", borderRadius: "10px", marginBottom: "8px", border: isSelected ? "2px solid #C9973A" : "2px solid #2A2D3A", background: isSelected ? "rgba(201,151,58,0.08)" : "#0F1117", cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <div>
                               <div style={{ fontSize: "14px", fontWeight: 600, color: isSelected ? "#C9973A" : "#E8E8E8", marginBottom: "4px" }}>
-                                {m.name}
-                                {isSelected && <span style={{ marginLeft: "8px", fontSize: "11px", color: "#C9973A" }}>← current</span>}
+                                {m.name}{isSelected && <span style={{ marginLeft: "8px", fontSize: "11px", color: "#C9973A" }}>← current</span>}
                               </div>
                               <div style={{ fontSize: "12px", color: "#6B7280" }}>{m.desc}</div>
                             </div>
@@ -1012,7 +921,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                         );
                       })}
                     </div>
-
                     <div style={{ padding: "16px 24px", borderTop: "1px solid #2A2D3A", fontSize: "12px", color: "#4B5563" }}>
                       Select a model to use it for this video. Use "Save as My Default" on the main screen to remember your choice.
                     </div>
@@ -1021,22 +929,19 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               )}
             </div>
 
-            {/* Video title */}
             <div style={{ marginBottom: "20px" }}>
               <Label>Video Title</Label>
               <input value={videoTitle} onChange={e => setVideoTitle(e.target.value)} placeholder="e.g. WOH Video 39 — Comeback Kids" style={inputStyle} />
             </div>
 
-            {/* Script */}
             <div style={{ marginBottom: "28px" }}>
               <Label>Script (English)</Label>
-              <textarea value={script} onChange={e => setScript(e.target.value)} placeholder="Paste your finished English script here..." rows={10}
-                style={{ ...inputStyle, resize: "vertical", lineHeight: "1.6" }} />
+              <textarea value={script} onChange={e => setScript(e.target.value)} placeholder="Paste your finished English script here..." rows={10} style={{ ...inputStyle, resize: "vertical", lineHeight: "1.6" }} />
               <div style={{ fontSize: "12px", color: "#4B5563", marginTop: "6px" }}>
                 {script.length > 0 ? `${script.split(/\s+/).filter(Boolean).length} words` :
                   isSpanishOnly ? "Paste English — auto-translated to Spanish only" :
-                    isBilingual ? "Paste English — Spanish auto-translated and shown for review" :
-                      "Paste your script — Claude writes 8 scene prompts automatically"}
+                  isBilingual ? "Paste English — Spanish auto-translated and shown for review" :
+                  "Paste your script — Claude writes 8 scene prompts automatically"}
               </div>
             </div>
 
@@ -1066,32 +971,26 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
             <div style={{ color: "#6B7280", fontSize: "14px", marginBottom: "24px" }}>
               {isSpanishOnly ? "Auto-translated to US Hispanic Spanish. No English video will be produced." : "Auto-translated to US Hispanic Spanish. Edit any lines before continuing."}
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: isSpanishOnly ? "1fr" : "1fr 1fr", gap: "20px", marginBottom: "24px" }}>
               {!isSpanishOnly && (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
                     <span>🇺🇸</span><Label style={{ margin: 0 }}>English (original)</Label>
                   </div>
-                  <div style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "10px", padding: "14px 16px", fontSize: "13px", color: "#6B7280", lineHeight: "1.7", height: "360px", overflowY: "auto", whiteSpace: "pre-wrap" }}>
-                    {script}
-                  </div>
+                  <div style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "10px", padding: "14px 16px", fontSize: "13px", color: "#6B7280", lineHeight: "1.7", height: "360px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{script}</div>
                 </div>
               )}
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
                   <span>🇪🇸</span><Label style={{ margin: 0 }}>Spanish {isSpanishOnly ? "(auto-translated · editable)" : "(editable)"}</Label>
                 </div>
-                <textarea value={spanishScript} onChange={e => setSpanishScript(e.target.value)}
-                  style={{ ...inputStyle, resize: "none", lineHeight: "1.7", height: "360px", fontSize: "13px" }} />
+                <textarea value={spanishScript} onChange={e => setSpanishScript(e.target.value)} style={{ ...inputStyle, resize: "none", lineHeight: "1.7", height: "360px", fontSize: "13px" }} />
               </div>
             </div>
-
             <div style={{ background: "rgba(201,151,58,0.06)", border: "1px solid rgba(201,151,58,0.2)", borderRadius: "10px", padding: "12px 16px", marginBottom: "24px", display: "flex", gap: "10px" }}>
               <span style={{ fontSize: "16px" }}>💡</span>
               <div style={{ fontSize: "13px", color: "#9CA3AF", lineHeight: "1.5" }}>US Hispanic Spanish — check idioms, names, and numbers as words (e.g. "two thousand nine" → "dos mil nueve").</div>
             </div>
-
             <div style={{ display: "flex", gap: "12px" }}>
               <button onClick={() => setStep(1)} style={ghostBtn}>← Back</button>
               <button onClick={handleProceedToPrompts} disabled={!spanishScript.trim() || generating} style={primaryBtn(!spanishScript.trim() || generating)}>
@@ -1106,7 +1005,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
           <div style={{ animation: "fadeIn 0.3s ease" }}>
             <div style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "-0.5px", marginBottom: "6px" }}>Review your 8 scene prompts</div>
             <div style={{ color: "#6B7280", fontSize: "14px", marginBottom: "24px" }}>Edit any prompt before generating. Scene 01 becomes the Kling animation.</div>
-
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "28px" }}>
               {prompts.map((prompt, i) => (
                 <div key={i} style={{ background: "#1A1D27", border: i === 0 ? "2px solid rgba(201,151,58,0.4)" : "2px solid #2A2D3A", borderRadius: "10px", padding: "14px 16px" }}>
@@ -1131,19 +1029,12 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                 </div>
               ))}
             </div>
-
             <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
               <button onClick={() => setStep(needsTranslation ? 2 : 1)} style={ghostBtn}>← Back</button>
               <button onClick={handleGenerateImages} disabled={generating} style={primaryBtn(generating)}>
-                {generating
-                  ? `Generating... ${imageProgress.filter(s => s === "COMPLETED").length}/8 ready`
-                  : "Generate All 8 Images →"}
+                {generating ? `Generating... ${imageProgress.filter(s => s === "COMPLETED").length}/8 ready` : "Generate All 8 Images →"}
               </button>
-              {generating && (
-                <div style={{ fontSize: "12px", color: "#6B7280" }}>
-                  Images appear one by one as they complete
-                </div>
-              )}
+              {generating && <div style={{ fontSize: "12px", color: "#6B7280" }}>Images appear one by one as they complete</div>}
             </div>
           </div>
         )}
@@ -1154,33 +1045,23 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
             <div style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "-0.5px", marginBottom: "6px" }}>Review your 8 scenes</div>
             <div style={{ color: "#6B7280", fontSize: "14px", marginBottom: "24px" }}>
               <strong style={{ color: "#E8E8E8" }}>Left-click</strong> any image to mark it for regeneration.
-              <strong style={{ color: "#E8E8E8" }}> Right-click (or tap the ⚡ button)</strong> to toggle Kling animation on that scene.
+              <strong style={{ color: "#E8E8E8" }}> Tap the ⚡ button</strong> to toggle Kling animation on that scene.
               {rejectedImages.size > 0 && <span style={{ color: "#F59E0B", marginLeft: "8px" }}>{rejectedImages.size} scene{rejectedImages.size > 1 ? "s" : ""} marked for redo.</span>}
             </div>
 
-            {/* Animation tier picker */}
             <div style={{ marginBottom: "20px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                 <Label style={{ margin: 0 }}>Animation</Label>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ fontSize: "12px", color: "#6B7280" }}>
-                    {animatedScenes.size} scene{animatedScenes.size !== 1 ? "s" : ""} · {animationCredits.toFixed(1)} credits
-                  </span>
-                  <span style={{ fontSize: "12px", color: "#C9973A", fontWeight: 700 }}>
-                    Total: {totalCredits} credits
-                  </span>
+                  <span style={{ fontSize: "12px", color: "#6B7280" }}>{animatedScenes.size} scene{animatedScenes.size !== 1 ? "s" : ""} · {animationCredits.toFixed(1)} credits</span>
+                  <span style={{ fontSize: "12px", color: "#C9973A", fontWeight: 700 }}>Total: {totalCredits} credits</span>
                 </div>
               </div>
               <div style={{ display: "flex", gap: "10px" }}>
                 {ANIMATION_TIERS.map(tier => {
                   const tierCredits = tier.scenes ? tier.scenes.length * (selectedVideoModel?.credits || 7.5) : null;
                   return (
-                    <button key={tier.id} onClick={() => handleTierSelect(tier)} style={{
-                      flex: 1, padding: "10px 12px", borderRadius: "10px",
-                      background: animationTier === tier.id ? "rgba(201,151,58,0.12)" : "#1A1D27",
-                      border: animationTier === tier.id ? "2px solid #C9973A" : "2px solid #2A2D3A",
-                      cursor: "pointer", textAlign: "left",
-                    }}>
+                    <button key={tier.id} onClick={() => handleTierSelect(tier)} style={{ flex: 1, padding: "10px 12px", borderRadius: "10px", background: animationTier === tier.id ? "rgba(201,151,58,0.12)" : "#1A1D27", border: animationTier === tier.id ? "2px solid #C9973A" : "2px solid #2A2D3A", cursor: "pointer", textAlign: "left" }}>
                       <div style={{ fontSize: "12px", fontWeight: 700, color: animationTier === tier.id ? "#C9973A" : "#E8E8E8", marginBottom: "2px" }}>{tier.label}</div>
                       <div style={{ fontSize: "11px", color: "#6B7280" }}>{tier.desc}</div>
                       {tierCredits !== null && <div style={{ fontSize: "11px", color: "#4B5563", marginTop: "2px" }}>{tierCredits.toFixed(1)} credits</div>}
@@ -1190,7 +1071,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
               </div>
             </div>
 
-            {/* Image grid — shows all 8 slots, images appear as they complete */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "24px" }}>
               {Array.from({ length: 8 }).map((_, i) => {
                 const isAnimated = animatedScenes.has(i);
@@ -1199,36 +1079,28 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                 const sceneStatus = imageProgress[i];
                 return (
                   <div key={i} style={{ position: "relative" }}>
-                    {/* Scene number */}
                     <div style={{ position: "absolute", top: "8px", left: "8px", zIndex: 2, width: "22px", height: "22px", borderRadius: "50%", background: isAnimated && hasImage ? "rgba(201,151,58,0.95)" : "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: isAnimated && hasImage ? "#0F1117" : "#fff" }}>
                       {String(i + 1).padStart(2, "0")}
                     </div>
-                    {/* Kling badge */}
                     {isAnimated && hasImage && (
                       <div style={{ position: "absolute", bottom: "36px", left: "8px", zIndex: 2, background: "rgba(201,151,58,0.95)", borderRadius: "4px", padding: "2px 6px", fontSize: "10px", fontWeight: 700, color: "#0F1117" }}>⚡ KLING</div>
                     )}
-                    {/* Animate toggle — only show when image is ready */}
                     {hasImage && (
                       <button onClick={(e) => { e.stopPropagation(); toggleScene(i); }} style={{ position: "absolute", bottom: "8px", left: "8px", zIndex: 4, padding: "3px 8px", borderRadius: "5px", border: "none", background: isAnimated ? "rgba(201,151,58,0.9)" : "rgba(0,0,0,0.6)", color: isAnimated ? "#0F1117" : "#9CA3AF", fontSize: "10px", fontWeight: 700, cursor: "pointer" }}>
                         {isAnimated ? "⚡ On" : "⚡ Off"}
                       </button>
                     )}
-                    {/* Rejected overlay */}
                     {isRejected && hasImage && (
                       <div style={{ position: "absolute", inset: 0, zIndex: 3, background: "rgba(239,68,68,0.5)", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", pointerEvents: "none" }}>✗</div>
                     )}
-                    {/* Pending placeholder */}
                     {!hasImage && (
                       <div style={{ width: "100%", aspectRatio: "9/16", borderRadius: "10px", border: "2px dashed #2A2D3A", background: "#1A1D27", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                        <div style={{ fontSize: "20px" }}>
-                          {sceneStatus === "FAILED" ? "✗" : "⏳"}
-                        </div>
+                        <div style={{ fontSize: "20px" }}>{sceneStatus === "FAILED" ? "✗" : "⏳"}</div>
                         <div style={{ fontSize: "10px", color: "#4B5563", textAlign: "center" }}>
                           {sceneStatus === "FAILED" ? "Failed" : sceneStatus === "IN_PROGRESS" ? "Generating..." : "In queue..."}
                         </div>
                       </div>
                     )}
-                    {/* Image */}
                     {hasImage && (
                       <img src={images[i]} alt={`Scene ${i + 1}`} onClick={() => handleRejectImage(i)} style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", borderRadius: "10px", border: isRejected ? "2px solid #EF4444" : isAnimated ? "2px solid #C9973A" : "2px solid #2A2D3A", cursor: "pointer", display: "block" }} />
                     )}
@@ -1243,20 +1115,10 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                   {generating ? "Regenerating..." : `Redo ${rejectedImages.size} Scene${rejectedImages.size > 1 ? "s" : ""}`}
                 </button>
               )}
-              <button
-                onClick={handleAnimate}
-                disabled={rejectedImages.size > 0 || animating || animatedScenes.size === 0}
-                style={primaryBtn(rejectedImages.size > 0 || animating || animatedScenes.size === 0)}
-              >
-                {animating
-                  ? `Animating ${animatedScenes.size} scene${animatedScenes.size > 1 ? "s" : ""}...`
-                  : animatedScenes.size === 0
-                    ? "Select at least 1 scene to animate"
-                    : `Animate ${animatedScenes.size} Scene${animatedScenes.size > 1 ? "s" : ""} in Kling →`}
+              <button onClick={handleAnimate} disabled={rejectedImages.size > 0 || animating || animatedScenes.size === 0} style={primaryBtn(rejectedImages.size > 0 || animating || animatedScenes.size === 0)}>
+                {animating ? `Animating ${animatedScenes.size} scene${animatedScenes.size > 1 ? "s" : ""}...` : animatedScenes.size === 0 ? "Select at least 1 scene to animate" : `Animate ${animatedScenes.size} Scene${animatedScenes.size > 1 ? "s" : ""} in Kling →`}
               </button>
-              {animatedScenes.size === 0 && (
-                <div style={{ fontSize: "12px", color: "#6B7280" }}>You can also skip animation entirely — use all still images.</div>
-              )}
+              {animatedScenes.size === 0 && <div style={{ fontSize: "12px", color: "#6B7280" }}>You can also skip animation entirely — use all still images.</div>}
             </div>
           </div>
         )}
@@ -1273,27 +1135,18 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                 : `Scenes ${[...animatedScenes].sort((a,b)=>a-b).map(i=>i+1).join(", ")} animated · same clips used in all language outputs`}
             </div>
 
-            {/* Animated scenes preview row */}
             <div style={{ display: "flex", gap: "12px", marginBottom: "24px", overflowX: "auto", paddingBottom: "4px" }}>
               {[...animatedScenes].sort((a,b)=>a-b).map(i => {
                 const videoUrl = animationUrls[i];
                 return (
                   <div key={i} style={{ width: "140px", flexShrink: 0, background: "#1A1D27", borderRadius: "10px", border: "2px solid rgba(201,151,58,0.4)", overflow: "hidden" }}>
                     {videoUrl ? (
-                      <video
-                        src={videoUrl}
-                        controls
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", display: "block" }}
-                      />
+                      <video src={videoUrl} controls autoPlay loop muted playsInline style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", display: "block" }} />
                     ) : (
                       <img src={images[i]} alt={`Scene ${i+1}`} style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", display: "block" }} />
                     )}
                     <div style={{ padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ fontSize: "11px", color: "#C9973A", fontWeight: 600 }}>Scene {String(i+1).padStart(2,"0")}</div>
+                      <div style={{ fontSize: "11px", color: "#C9973A", fontWeight: 600 }}>Scene {String(i+1).padStart(2,"00")}</div>
                       <div style={{ fontSize: "10px", color: "#6B7280" }}>{videoUrl ? "▶ 5s" : "Still"}</div>
                     </div>
                   </div>
@@ -1302,7 +1155,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
             </div>
 
             <div style={{ display: "flex", gap: "24px", marginBottom: "28px" }}>
-
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div style={{ background: "#1A1D27", borderRadius: "12px", border: "2px solid #2A2D3A", padding: "20px" }}>
                   <div style={{ fontSize: "12px", color: "#9CA3AF", marginBottom: "16px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>Ready to save</div>
@@ -1322,7 +1174,6 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
                     </div>
                   ))}
                 </div>
-
                 {needsTranslation && (
                   <div style={{ background: "rgba(201,151,58,0.06)", borderRadius: "10px", border: "1px solid rgba(201,151,58,0.2)", padding: "14px 16px", display: "flex", gap: "10px" }}>
                     <span>{isBilingual ? "🇺🇸🇪🇸" : "🇪🇸"}</span>
@@ -1351,66 +1202,34 @@ export default function VideoProducer({ session, onSettings, onLogout }) {
             <div style={{ color: "#6B7280", fontSize: "14px", marginBottom: "32px" }}>
               Logged by {producer}{isOther && clientName && ` · Client: ${clientName}`}
             </div>
-
-            {/* Status badges */}
             <div style={{ display: "flex", gap: "16px", justifyContent: "center", marginBottom: "32px" }}>
               {isBilingual ? (<><div style={summaryBadge("#22C55E")}>🇺🇸 English</div><div style={summaryBadge("#22C55E")}>🇪🇸 Spanish</div></>) :
                 isSpanishOnly ? <div style={summaryBadge("#22C55E")}>🇪🇸 Spanish</div> :
-                  <div style={summaryBadge("#22C55E")}>🇺🇸 English</div>}
+                <div style={summaryBadge("#22C55E")}>🇺🇸 English</div>}
               <div style={summaryBadge("#6366F1")}>Job Log ✓</div>
             </div>
 
-            {/* Assembly section */}
             <div style={{ background: "#1A1D27", border: "2px solid #2A2D3A", borderRadius: "16px", padding: "28px", maxWidth: "560px", margin: "0 auto 32px" }}>
               <div style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px" }}>
                 {assembling ? "⏳ Assembling your video..." : enVideoUrl || esVideoUrl ? "✅ Videos Ready!" : "Ready to Assemble"}
               </div>
               <div style={{ fontSize: "13px", color: "#6B7280", marginBottom: "24px" }}>
-                {assembling
-                  ? "Fish Audio is generating voiceovers and FFmpeg is stitching everything together. This takes 3-5 minutes."
-                  : enVideoUrl || esVideoUrl
-                    ? "Your finished videos are ready to download!"
-                    : "Click below to generate voiceovers and assemble your finished MP4s."}
+                {assembling ? "Fish Audio is generating voiceovers and FFmpeg is stitching everything together. This takes 3-5 minutes."
+                  : enVideoUrl || esVideoUrl ? "Your finished videos are ready to download!"
+                  : "Click below to generate voiceovers and assemble your finished MP4s."}
               </div>
-
-              {/* Download links */}
               {(enVideoUrl || esVideoUrl) && (
                 <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginBottom: "20px" }}>
-                  {enVideoUrl && (
-                    <a href={enVideoUrl} download={`${videoTitle}-EN.mp4`} style={{ padding: "12px 24px", borderRadius: "10px", background: "linear-gradient(135deg, #C9973A, #E8B85A)", color: "#0F1117", fontSize: "14px", fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: "8px" }}>
-                      ↓ Download 🇺🇸 EN
-                    </a>
-                  )}
-                  {esVideoUrl && (
-                    <a href={esVideoUrl} download={`${videoTitle}-ES.mp4`} style={{ padding: "12px 24px", borderRadius: "10px", background: "linear-gradient(135deg, #C9973A, #E8B85A)", color: "#0F1117", fontSize: "14px", fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: "8px" }}>
-                      ↓ Download 🇪🇸 ES
-                    </a>
-                  )}
+                  {enVideoUrl && <a href={enVideoUrl} download={`${videoTitle}-EN.mp4`} style={{ padding: "12px 24px", borderRadius: "10px", background: "linear-gradient(135deg, #C9973A, #E8B85A)", color: "#0F1117", fontSize: "14px", fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: "8px" }}>↓ Download 🇺🇸 EN</a>}
+                  {esVideoUrl && <a href={esVideoUrl} download={`${videoTitle}-ES.mp4`} style={{ padding: "12px 24px", borderRadius: "10px", background: "linear-gradient(135deg, #C9973A, #E8B85A)", color: "#0F1117", fontSize: "14px", fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: "8px" }}>↓ Download 🇪🇸 ES</a>}
                 </div>
               )}
-
-              {/* Assemble button */}
               {!enVideoUrl && !esVideoUrl && (
-                <button
-                  onClick={handleAssemble}
-                  disabled={assembling}
-                  style={{
-                    ...primaryBtn(assembling),
-                    width: "100%", justifyContent: "center",
-                    padding: "16px",
-                  }}
-                >
-                  {assembling
-                    ? "Assembling... check back in a few minutes"
-                    : `🎬 Assemble ${isBilingual ? "EN + ES Videos" : isSpanishOnly ? "ES Video" : "EN Video"}`}
+                <button onClick={handleAssemble} disabled={assembling} style={{ ...primaryBtn(assembling), width: "100%", justifyContent: "center", padding: "16px" }}>
+                  {assembling ? "Assembling... check back in a few minutes" : `🎬 Assemble ${isBilingual ? "EN + ES Videos" : isSpanishOnly ? "ES Video" : "EN Video"}`}
                 </button>
               )}
-
-              {assembling && (
-                <div style={{ marginTop: "16px", fontSize: "12px", color: "#4B5563" }}>
-                  You can close this tab and come back — your videos will be waiting when you return.
-                </div>
-              )}
+              {assembling && <div style={{ marginTop: "16px", fontSize: "12px", color: "#4B5563" }}>You can close this tab and come back — your videos will be waiting when you return.</div>}
             </div>
 
             <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
@@ -1442,30 +1261,19 @@ function AppHeader({ screen, jobs, onNav, step, needsTranslation, session, onSet
           <div style={{ fontSize: "11px", color: "#6B7280" }}>Script to video in minutes</div>
         </div>
       </div>
-
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <button onClick={() => onNav("main")} style={{ padding: "6px 14px", borderRadius: "8px", border: "none", background: screen === "main" ? "rgba(201,151,58,0.15)" : "transparent", color: screen === "main" ? "#C9973A" : "#6B7280", fontSize: "13px", fontWeight: screen === "main" ? 600 : 400, cursor: "pointer" }}>
-          Pipeline
-        </button>
+        <button onClick={() => onNav("main")} style={{ padding: "6px 14px", borderRadius: "8px", border: "none", background: screen === "main" ? "rgba(201,151,58,0.15)" : "transparent", color: screen === "main" ? "#C9973A" : "#6B7280", fontSize: "13px", fontWeight: screen === "main" ? 600 : 400, cursor: "pointer" }}>Pipeline</button>
         <button onClick={() => onNav("jobLog")} style={{ padding: "6px 14px", borderRadius: "8px", border: "none", background: screen === "jobLog" ? "rgba(201,151,58,0.15)" : "transparent", color: screen === "jobLog" ? "#C9973A" : "#6B7280", fontSize: "13px", fontWeight: screen === "jobLog" ? 600 : 400, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
           Job Log
           {jobs.length > 0 && <span style={{ background: "#C9973A", color: "#0F1117", fontSize: "10px", fontWeight: 700, borderRadius: "10px", padding: "1px 6px" }}>{jobs.length}</span>}
         </button>
-        <button onClick={() => onNav("addChannel")} style={{ padding: "6px 14px", borderRadius: "8px", border: "none", background: screen === "addChannel" ? "rgba(201,151,58,0.15)" : "transparent", color: screen === "addChannel" ? "#C9973A" : "#6B7280", fontSize: "13px", fontWeight: screen === "addChannel" ? 600 : 400, cursor: "pointer" }}>
-          + Channel
-        </button>
-
+        <button onClick={() => onNav("addChannel")} style={{ padding: "6px 14px", borderRadius: "8px", border: "none", background: screen === "addChannel" ? "rgba(201,151,58,0.15)" : "transparent", color: screen === "addChannel" ? "#C9973A" : "#6B7280", fontSize: "13px", fontWeight: screen === "addChannel" ? 600 : 400, cursor: "pointer" }}>+ Channel</button>
         <div style={{ width: "1px", height: "20px", background: "#2A2D3A", margin: "0 4px" }} />
-
-        {/* User info + settings */}
         <button onClick={onSettings} style={{ padding: "6px 12px", borderRadius: "8px", border: "1px solid #2A2D3A", background: "transparent", color: "#9CA3AF", fontSize: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
           ⚙️ {session?.name || "Settings"}
           {session?.isAdmin && <span style={{ fontSize: "9px", background: "rgba(201,151,58,0.2)", color: "#C9973A", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>ADMIN</span>}
         </button>
-        <button onClick={onLogout} style={{ padding: "6px 10px", borderRadius: "8px", border: "1px solid #2A2D3A", background: "transparent", color: "#6B7280", fontSize: "12px", cursor: "pointer" }}>
-          Sign out
-        </button>
-
+        <button onClick={onLogout} style={{ padding: "6px 10px", borderRadius: "8px", border: "1px solid #2A2D3A", background: "transparent", color: "#6B7280", fontSize: "12px", cursor: "pointer" }}>Sign out</button>
         {screen === "main" && step && (
           <div style={{ fontSize: "12px", color: "#4B5563", marginLeft: "4px" }}>
             {step < 7 ? `Step ${step} of ${totalSteps}` : "Complete ✓"}
