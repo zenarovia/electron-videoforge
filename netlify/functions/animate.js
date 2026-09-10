@@ -1,16 +1,49 @@
+// animate.js — Submits one animation job to Higgsfield and polls for the result
+// ─── Shared-secret auth ──────────────────────────────────────────────────────
+// Every request MUST send the header `x-vf-secret` matching env VF_API_SECRET.
+// A missing or wrong secret gets a 401 before any other work happens, and the
+// admin Higgsfield key (process.env.HIGGSFIELD_API_KEY) is used ONLY after that check passes.
+//
+// This function previously read `session.isAdmin` straight out of the request
+// body to decide whether to use HIGGSFIELD_API_KEY, so anyone who knew the URL could POST
+// {"session":{"isAdmin":true}} and spend the Higgsfield balance. Nothing in the body
+// may ever grant the admin path again — auth comes from the header alone.
+//
+// NOTE: the Studio web UI does NOT send this header, so it cannot call this
+// function as-is. If the UI is ever brought back, add
+// `"x-vf-secret": <VF_API_SECRET>` to the fetch headers in src/lib/api.js.
+function isAuthorized(event) {
+  const expected = process.env.VF_API_SECRET;
+  const provided = event.headers?.["x-vf-secret"];
+  if (!expected || typeof provided !== "string") return false;
+
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(provided, "utf8");
+  if (a.length !== b.length) return false;
+  return require("crypto").timingSafeEqual(a, b);
+}
+
 exports.handler = async (event) => {
+  if (!isAuthorized(event)) {
+    return {
+      statusCode: 401,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Unauthorized" }),
+    };
+  }
+
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method not allowed" };
   }
 
-  const { imageUrl, motionPrompt, videoModel, session } = JSON.parse(event.body || "{}");
+  const { imageUrl, motionPrompt, videoModel } = JSON.parse(event.body || "{}");
   if (!imageUrl) return { statusCode: 400, body: JSON.stringify({ error: "Image URL required" }) };
 
-  const higgsKey = session?.isAdmin
-    ? process.env.HIGGSFIELD_API_KEY
-    : session?.higgsfieldApiKey;
-
-  if (!higgsKey) return { statusCode: 401, body: JSON.stringify({ error: "No Higgsfield API key available" }) };
+  // Caller proved they hold VF_API_SECRET, so the admin key is the only key.
+  const higgsKey = process.env.HIGGSFIELD_API_KEY;
+  if (!higgsKey) {
+    return { statusCode: 500, body: JSON.stringify({ error: "HIGGSFIELD_API_KEY not configured" }) };
+  }
 
   const model = videoModel || "kling3_0_turbo";
 
