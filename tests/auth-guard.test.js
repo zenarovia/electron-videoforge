@@ -14,6 +14,16 @@
 // log-url.js and save-export.js spend no credits but write to Netlify Blobs
 // under a caller-supplied id. @netlify/blobs is pointed at a fake site below,
 // so an unguarded write shows up here as a recorded fetch.
+//
+// ─── Negative control ──────────────────────────────────────────────────
+// Point VF_FUNCTIONS_DIR at a checkout of the pre-guard functions and these
+// tests must FAIL — that is what proves they are testing something:
+//
+//   node tests/auth-guard.test.js                       # against this working tree
+//   VF_FUNCTIONS_DIR=/tmp/old node tests/auth-guard.test.js   # against the old code
+//
+// Without this, FUNCTIONS_DIR was pinned to the working tree and an old-code run
+// silently re-tested the new code, reporting a pass that meant nothing.
 
 const fs = require("fs");
 const path = require("path");
@@ -22,7 +32,7 @@ const path = require("path");
 // "test" (1 ms). It reads this once at load, so set it before any require.
 process.env.NODE_ENV = "test";
 
-const FUNCTIONS_DIR = path.join(__dirname, "..", "netlify", "functions");
+const FUNCTIONS_DIR = process.env.VF_FUNCTIONS_DIR || path.join(__dirname, "..", "netlify", "functions");
 const SECRET = "test-secret-value-123";
 
 const ENV = {
