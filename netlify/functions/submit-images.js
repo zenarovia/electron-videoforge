@@ -39,29 +39,57 @@ const { resolveSceneCount, MAX_SECONDS_ON_SCREEN, PacingError } = require("./lib
 const MAX_PROMPTS = 60;
 
 // Our model IDs -> fal.ai endpoint strings.
+// fal publishes GPT Image 2 under the openai/ namespace, not fal-ai/.
 const MODEL_MAP = {
   "nano_banana_2": "fal-ai/nano-banana-2",
   "nano_banana_flash": "fal-ai/nano-banana-flash",
-  "gpt_image_2": "fal-ai/gpt-image-2",
+  "gpt_image_2": "openai/gpt-image-2",
   "seedream_v4_5": "fal-ai/seedream-v4-5",
   "cinematic_studio_2_5": "fal-ai/cinematic-studio-2-5",
 };
 const DEFAULT_MODEL = "nano_banana_2";
 
-// A raw `fal-ai/...` endpoint may be passed instead of an alias, so a new fal
-// model can be used without a redeploy. Kept to a strict shape so a typo fails
-// here rather than as a confusing error from fal.
-const RAW_ENDPOINT = /^fal-ai\/[a-z0-9][a-z0-9._/-]{0,80}$/;
+// A raw fal endpoint id may be passed instead of an alias, so a new fal model
+// can be used without a redeploy. fal namespaces models by owner (fal-ai/...,
+// openai/...), so any owner is accepted. Kept to a strict shape so a typo fails
+// here rather than as a confusing error from fal: every path segment must start
+// with a letter or digit, so there is no "..", no empty segment, no scheme.
+const RAW_ENDPOINT = /^[a-z0-9][a-z0-9-]{0,39}(\/[a-z0-9][a-z0-9._-]{0,80}){1,5}$/;
 
 // Which endpoints actually accept a `quality` field. Sending it to one that does
 // not is a 422 from fal, so it is dropped (and reported) rather than forwarded.
-const QUALITY_MODELS = new Set(["fal-ai/gpt-image-2"]);
+// Note fal's own default for gpt-image-2 is "high", its most expensive tier, so
+// omitting quality there does not mean cheap — pass "medium" or "low" for that.
+const QUALITY_MODELS = new Set(["openai/gpt-image-2"]);
 const QUALITY_VALUES = new Set(["low", "medium", "high", "auto"]);
 
 const ASPECT_RATIOS = new Set([
   "9:16", "3:4", "4:5", "1:1", "4:3", "16:9", "2:3", "3:2", "21:9",
 ]);
 const DEFAULT_ASPECT_RATIO = "9:16";
+
+// Endpoints that are sized by `image_size`, not `aspect_ratio`. fal ignores an
+// aspect_ratio a model does not have, so sending one here would silently return
+// the model's default shape (landscape 4:3 for gpt-image-2): MBL's 3:4 portraits
+// would come back sideways. For these, aspectRatio becomes an explicit size.
+//
+// gpt-image-2's limits per fal's docs: both edges multiples of 16, long edge
+// <= 3840, ratio <= 3:1, 655,360..8,294,400 pixels. Every size below is the exact
+// ratio inside those limits, at about 1-2 MP (long edge 1536 where the ratio
+// allows), the same class as OpenAI's own 1024x1536 portrait.
+const IMAGE_SIZE_MODELS = {
+  "openai/gpt-image-2": {
+    "9:16": { width: 864, height: 1536 },
+    "3:4": { width: 1152, height: 1536 },
+    "4:5": { width: 1024, height: 1280 },
+    "1:1": { width: 1024, height: 1024 },
+    "4:3": { width: 1536, height: 1152 },
+    "16:9": { width: 1536, height: 864 },
+    "2:3": { width: 1024, height: 1536 },
+    "3:2": { width: 1536, height: 1024 },
+    "21:9": { width: 2016, height: 864 },
+  },
+};
 
 const DEFAULT_CONCURRENCY = 8;
 const MAX_CONCURRENCY = 16;
@@ -206,6 +234,7 @@ exports.handler = async (event) => {
     return json(400, { error: `unsupported quality "${quality}"`, supported: [...QUALITY_VALUES] });
   }
   const qualityApplied = quality !== undefined && QUALITY_MODELS.has(endpoint);
+  const imageSize = IMAGE_SIZE_MODELS[endpoint]?.[ratio] || null;
 
   let inFlight = DEFAULT_CONCURRENCY;
   if (concurrency !== undefined) {
@@ -223,7 +252,9 @@ exports.handler = async (event) => {
 
   try {
     const jobs = await runPool(prompts, inFlight, async (prompt, i) => {
-      const payload = { prompt, aspect_ratio: ratio, num_images: 1 };
+      const payload = imageSize
+        ? { prompt, image_size: imageSize, num_images: 1 }
+        : { prompt, aspect_ratio: ratio, num_images: 1 };
       if (qualityApplied) payload.quality = quality;
 
       const { data, error } = await submitOne(endpoint, falKey, payload);
@@ -247,6 +278,7 @@ exports.handler = async (event) => {
       endpoint,
       imageModel: modelId,
       aspectRatio: ratio,
+      imageSize,
       quality: quality === undefined ? null : quality,
       qualityApplied,
       submitted: jobs.filter((j) => j.requestId).length,

@@ -2,6 +2,7 @@
 //   • the scene count derived from narration length (lib/scene-count.js)
 //   • the 15-seconds-per-image acceptance standard
 //   • variable-length prompt batches, aspect ratios, model + quality passthrough
+//   • gpt-image-2 sized by image_size (it has no aspect_ratio), raw endpoint ids
 //   • the x-vf-secret guard, which none of the above may weaken
 //
 // Run with:  node tests/image-batch.test.js
@@ -254,6 +255,11 @@ const scriptOf = (words) => Array.from({ length: words }, () => "word").join(" "
     check("default aspect ratio unchanged", calls.every((c) => c.body.aspect_ratio === "9:16"));
     check("num_images unchanged", calls.every((c) => c.body.num_images === 1));
     check("no quality sent when not asked for", calls.every((c) => c.body.quality === undefined));
+    check(
+      "payload byte-identical to the old call",
+      calls.every((c, i) => JSON.stringify(c.body) === JSON.stringify({ prompt: `scene ${i + 1} prompt`, aspect_ratio: "9:16", num_images: 1 })),
+      calls[0] && JSON.stringify(calls[0].body)
+    );
     check("response still carries jobs + endpoint", json && Array.isArray(json.jobs) && typeof json.endpoint === "string");
     check("jobs still carry index for the Studio UI", json && J(json).every((j, i) => j.index === i));
     check("fal key sent as a fal Key header", calls.every((c) => c.headers.Authorization === "Key fake-fal-key"));
@@ -296,7 +302,7 @@ const scriptOf = (words) => Array.from({ length: words }, () => "word").join(" "
   section("imageModel and quality passthrough");
   for (const [id, endpoint] of [
     ["nano_banana_2", "fal-ai/nano-banana-2"],
-    ["gpt_image_2", "fal-ai/gpt-image-2"],
+    ["gpt_image_2", "openai/gpt-image-2"],
     ["seedream_v4_5", "fal-ai/seedream-v4-5"],
   ]) {
     const { json, calls } = await invoke({ prompts: promptsOf(1), imageModel: id });
@@ -324,6 +330,74 @@ const scriptOf = (words) => Array.from({ length: words }, () => "word").join(" "
     const { res, calls } = await invoke({ prompts: promptsOf(1), quality: "ultra" });
     check("bad quality: 400", res && res.statusCode === 400, res && `got ${res.statusCode}`);
     check("bad quality: no spend", calls.length === 0, `made ${calls.length}`);
+  }
+
+  // ─── 7b. gpt-image-2 is sized by image_size, not aspect_ratio ─────────────
+  // fal serves GPT Image 2 as openai/gpt-image-2 and it has no aspect_ratio
+  // field: one sent to it is ignored and the image comes back in the model's
+  // default landscape 4:3. Every ratio must arrive as an explicit size inside
+  // fal's documented limits (multiples of 16, long edge <= 3840, ratio <= 3:1,
+  // 655,360..8,294,400 pixels).
+  section("gpt-image-2: aspectRatio becomes image_size");
+  for (const ratio of ["9:16", "3:4", "4:5", "1:1", "4:3", "16:9", "2:3", "3:2", "21:9"]) {
+    const { res, json, calls } = await invoke({ prompts: promptsOf(2), imageModel: "gpt_image_2", aspectRatio: ratio });
+    const size = calls[0] && calls[0].body.image_size;
+    const sized = !!size && Number.isInteger(size.width) && Number.isInteger(size.height);
+    const [rw, rh] = ratio.split(":").map(Number);
+    check(`gpt ${ratio}: 200`, res && res.statusCode === 200, res && `${res.statusCode} ${res.body}`);
+    check(`gpt ${ratio}: posted to openai/gpt-image-2`,
+      calls.length === 2 && calls.every((c) => c.url === "https://queue.fal.run/openai/gpt-image-2"), calls[0] && calls[0].url);
+    check(`gpt ${ratio}: no aspect_ratio sent`, calls.length === 2 && calls.every((c) => !("aspect_ratio" in c.body)));
+    check(`gpt ${ratio}: image_size is {width, height}`, sized, JSON.stringify(size));
+    if (sized) {
+      const { width: w, height: h } = size;
+      check(`gpt ${ratio}: exact ratio`, w * rh === h * rw, `${w}x${h}`);
+      check(`gpt ${ratio}: multiples of 16`, w % 16 === 0 && h % 16 === 0, `${w}x${h}`);
+      check(`gpt ${ratio}: long edge <= 3840`, Math.max(w, h) <= 3840, `${w}x${h}`);
+      check(`gpt ${ratio}: ratio <= 3:1`, Math.max(w, h) / Math.min(w, h) <= 3, `${w}x${h}`);
+      check(`gpt ${ratio}: pixel count within fal's bounds`, w * h >= 655360 && w * h <= 8294400, String(w * h));
+    }
+    check(`gpt ${ratio}: same size on every job`, sized && calls.every((c) => JSON.stringify(c.body.image_size) === JSON.stringify(size)));
+    check(`gpt ${ratio}: size echoed in the response`, sized && json && JSON.stringify(json.imageSize) === JSON.stringify(size),
+      json && JSON.stringify(json.imageSize));
+  }
+  {
+    // MBL: portrait 3:4, high quality so on-image text renders legibly.
+    const { json, calls } = await invoke({ prompts: promptsOf(11), imageModel: "gpt_image_2", aspectRatio: "3:4", quality: "high" });
+    check("MBL call: 11 submissions", calls.length === 11, `made ${calls.length}`);
+    check(
+      "MBL call: exact payload",
+      calls[0] && JSON.stringify(calls[0].body) ===
+        JSON.stringify({ prompt: "scene 1 prompt", image_size: { width: 1152, height: 1536 }, num_images: 1, quality: "high" }),
+      calls[0] && JSON.stringify(calls[0].body)
+    );
+    check("MBL call: quality reported as applied", json && json.qualityApplied === true);
+  }
+  {
+    const { json, calls } = await invoke({ prompts: promptsOf(1), imageModel: "gpt_image_2" });
+    check("gpt with no aspectRatio: 9:16 portrait",
+      calls[0] && JSON.stringify(calls[0].body.image_size) === JSON.stringify({ width: 864, height: 1536 }), calls[0] && JSON.stringify(calls[0].body));
+    check("gpt with no quality: none sent, fal's default applies", calls[0] && !("quality" in calls[0].body));
+    check("nano-banana-2 reports no imageSize", (await invoke({ prompts: promptsOf(1) })).json?.imageSize === null);
+    check("gpt response reports the endpoint", json && json.endpoint === "openai/gpt-image-2", json && json.endpoint);
+  }
+
+  // ─── 7c. Raw endpoint ids ──────────────────────────────────────────────────
+  section("raw fal endpoint ids");
+  for (const raw of ["fal-ai/nano-banana-2", "openai/gpt-image-2", "fal-ai/bytedance/seedream/v4.5/text-to-image"]) {
+    const { res, calls } = await invoke({ prompts: promptsOf(1), imageModel: raw });
+    check(`raw ${raw}: 200`, res && res.statusCode === 200, res && `${res.statusCode} ${res.body}`);
+    check(`raw ${raw}: posted to that endpoint`, calls[0] && calls[0].url === `https://queue.fal.run/${raw}`, calls[0] && calls[0].url);
+  }
+  {
+    const { calls } = await invoke({ prompts: promptsOf(1), imageModel: "openai/gpt-image-2", aspectRatio: "3:4" });
+    check("raw openai/gpt-image-2 is sized too",
+      calls[0] && JSON.stringify(calls[0].body.image_size) === JSON.stringify({ width: 1152, height: 1536 }), calls[0] && JSON.stringify(calls[0].body));
+  }
+  for (const bad of ["fal-ai/a/../../x", "openai/../fal-ai/x", "fal-ai/./x", "fal-ai//x", "https://evil.example/x", "fal-ai", "/fal-ai/x", "fal-ai/X"]) {
+    const { res, calls } = await invoke({ prompts: promptsOf(1), imageModel: bad });
+    check(`raw ${JSON.stringify(bad)}: 400`, res && res.statusCode === 400, res && `got ${res.statusCode}`);
+    check(`raw ${JSON.stringify(bad)}: no spend`, calls.length === 0, `made ${calls.length}`);
   }
 
   // ─── 8. The 15-second standard, enforced at the endpoint ───────────────────
