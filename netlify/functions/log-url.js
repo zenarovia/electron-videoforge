@@ -1,10 +1,41 @@
 // log-url.js — Appends a URL entry to the VideoForge URL log in Netlify Blobs
-// Called automatically by check-jobs.js whenever a URL is returned
-// Also callable manually from the frontend
+// check-jobs.js does NOT call this endpoint; it logs URLs server-side through
+// its own logUrl(). Nothing in src/ calls it either — it is for manual appends.
 
 const { getStore } = require("@netlify/blobs");
 
+// ─── Shared-secret auth ──────────────────────────────────────────────────────
+// Every request MUST send the header `x-vf-secret` matching env VF_API_SECRET.
+// A missing or wrong secret gets a 401 before any other work happens, and the
+// videoforge-url-log store is read or written ONLY after that check passes.
+//
+// This function previously wrote to Blobs with no auth at all, so anyone who
+// knew the URL could create log-{jobId} entries, or append junk to a real job's
+// log, by guessing or reusing its jobId. It spends no API credits, but it is
+// still an unauthenticated write into the same store check-jobs.js relies on.
+//
+// NOTE: nothing in the Studio web UI calls this function, and the UI does NOT
+// send this header. Any caller must send `"x-vf-secret": <VF_API_SECRET>`.
+function isAuthorized(event) {
+  const expected = process.env.VF_API_SECRET;
+  const provided = event.headers?.["x-vf-secret"];
+  if (!expected || typeof provided !== "string") return false;
+
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(provided, "utf8");
+  if (a.length !== b.length) return false;
+  return require("crypto").timingSafeEqual(a, b);
+}
+
 exports.handler = async (event) => {
+  if (!isAuthorized(event)) {
+    return {
+      statusCode: 401,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Unauthorized" }),
+    };
+  }
+
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method not allowed" };
   }

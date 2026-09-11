@@ -10,9 +10,17 @@
 // URL could spend the account's fal / Higgsfield / Claude / Fish Audio balance
 // or write to Airtable. global.fetch is stubbed so any outbound attempt is
 // recorded and fails loudly.
+//
+// log-url.js and save-export.js spend no credits but write to Netlify Blobs
+// under a caller-supplied id. @netlify/blobs is pointed at a fake site below,
+// so an unguarded write shows up here as a recorded fetch.
 
 const fs = require("fs");
 const path = require("path");
+
+// @netlify/blobs retries a failed fetch 5 times, 5 s apart, unless NODE_ENV is
+// "test" (1 ms). It reads this once at load, so set it before any require.
+process.env.NODE_ENV = "test";
 
 const FUNCTIONS_DIR = path.join(__dirname, "..", "netlify", "functions");
 const SECRET = "test-secret-value-123";
@@ -26,10 +34,16 @@ const ENV = {
   AIRTABLE_JOBS_BASE: "appFAKEBASE",
   AIRTABLE_JOBS_TABLE: "tblFAKETABLE",
   FISH_AUDIO_API_KEY: "fake-fish-key",
+  NETLIFY_BLOBS_CONTEXT: Buffer.from(JSON.stringify({
+    siteID: "fake-site",
+    token: "fake-blobs-token",
+    edgeURL: "https://blobs.invalid",
+    uncachedEdgeURL: "https://blobs.invalid",
+  })).toString("base64"),
 };
 
 // A request well-formed enough to get past validation and reach real work,
-// so a missing guard would actually spend money.
+// so a missing guard would actually spend money or write a blob.
 const CASES = {
   "submit-images.js": { httpMethod: "POST", body: JSON.stringify({ prompts: new Array(8).fill("p") }) },
   "submit-animations.js": { httpMethod: "POST", body: JSON.stringify({ imageUrls: ["u"], animatedSceneIndexes: [0] }) },
@@ -45,6 +59,8 @@ const CASES = {
     httpMethod: "POST",
     body: JSON.stringify({ jobId: "j1", imageUrls: ["https://fal.media/a.png"], enScript: "hi", language: "en" }),
   },
+  "log-url.js": { httpMethod: "POST", body: JSON.stringify({ jobId: "j1", url: "https://fal.media/a.png", type: "image", sceneIndex: 0 }) },
+  "save-export.js": { httpMethod: "POST", body: JSON.stringify({ id: "j1", title: "t" }) },
 };
 
 let pass = 0;
@@ -62,7 +78,7 @@ async function invoke(file, event, env) {
   const realFetch = global.fetch;
   global.fetch = async (url, opts) => {
     const h = (opts && opts.headers) || {};
-    calls.push({ url: String(url), auth: h.Authorization || h["x-api-key"] });
+    calls.push({ url: String(url), auth: h.Authorization || h.authorization || h["x-api-key"] });
     throw new Error("TEST: outbound fetch attempted");
   };
 
@@ -84,7 +100,7 @@ async function invoke(file, event, env) {
 
 // A leaked admin credential is the failure that actually costs money.
 function assertNoLeak(calls, label) {
-  const leaked = calls.find((c) => c.auth && /fake-(fal|higgs|claude|airtable|fish)/.test(String(c.auth)));
+  const leaked = calls.find((c) => c.auth && /fake-(fal|higgs|claude|airtable|fish|blobs)/.test(String(c.auth)));
   check(`${label}: admin credential not sent upstream`, !leaked, leaked && String(leaked.auth));
 }
 
