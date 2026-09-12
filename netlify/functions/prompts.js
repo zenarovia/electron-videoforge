@@ -4,45 +4,25 @@
 // fixed at 8 — see lib/scene-count.js for the rule and for why the duration is
 // estimated from the script rather than measured. Pass sceneCount or durationSec
 // to override. A ~90s script still yields 8, which is what it always yielded.
-// ─── Shared-secret auth ──────────────────────────────────────────────────────
-// Every request MUST send the header `x-vf-secret` matching env VF_API_SECRET.
-// A missing or wrong secret gets a 401 before any other work happens, and the
+// ─── Auth ────────────────────────────────────────────────────────────────────
+// Every request MUST carry the `x-vf-secret` header or a signed session cookie,
+// checked by withAuth (lib/require-auth.js). Anything else is refused before
+// any other work happens, and the
 // admin Claude key (process.env.CLAUDE_API_KEY) is used ONLY after that check passes.
 //
 // This function previously read `session.isAdmin` straight out of the request
 // body to decide whether to use CLAUDE_API_KEY, so anyone who knew the URL could POST
 // {"session":{"isAdmin":true}} and bill tokens to the Claude account. Nothing in the body
-// may ever grant the admin path again — auth comes from the header alone.
-//
-// NOTE: the Studio web UI does NOT send this header, so it cannot call this
-// function as-is. If the UI is ever brought back, add
-// `"x-vf-secret": <VF_API_SECRET>` to the fetch headers in src/lib/api.js.
+// may ever grant the admin path again — auth comes from lib/require-auth.js alone.
 const { resolveSceneCount, PacingError } = require("./lib/scene-count");
 
 // Matches the per-request prompt cap in submit-images.js — no point writing more
 // prompts than the submitter will accept.
 const MAX_SCENES = 60;
 
-function isAuthorized(event) {
-  const expected = process.env.VF_API_SECRET;
-  const provided = event.headers?.["x-vf-secret"];
-  if (!expected || typeof provided !== "string") return false;
+const { withAuth } = require("./lib/require-auth");
 
-  const a = Buffer.from(expected, "utf8");
-  const b = Buffer.from(provided, "utf8");
-  if (a.length !== b.length) return false;
-  return require("crypto").timingSafeEqual(a, b);
-}
-
-exports.handler = async (event) => {
-  if (!isAuthorized(event)) {
-    return {
-      statusCode: 401,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Unauthorized" }),
-    };
-  }
-
+exports.handler = withAuth(async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method not allowed" };
   }
@@ -72,7 +52,7 @@ exports.handler = async (event) => {
     };
   }
 
-  // Caller proved they hold VF_API_SECRET, so the admin key is the only key.
+  // Caller passed withAuth, so the admin key is the only key.
   const apiKey = process.env.CLAUDE_API_KEY;
   if (!apiKey) {
     return { statusCode: 500, body: JSON.stringify({ error: "CLAUDE_API_KEY not configured" }) };
@@ -145,4 +125,4 @@ Return format (JSON array of exactly ${count} strings, nothing else):
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
-};
+});

@@ -14,40 +14,20 @@ const FISH_AUDIO_API = "https://api.fish.audio/v1/tts";
 const FISH_VOICE_EN = "bf322df2096a46f18c579d0baa36f41d";
 const FISH_VOICE_ES = "a1cb66db45664ddaa95043f285dbae42";
 
-// ─── Shared-secret auth ──────────────────────────────────────────────────────
-// Every request MUST send the header `x-vf-secret` matching env VF_API_SECRET.
-// A missing or wrong secret gets a 401 before any other work happens, and the
+// ─── Auth ────────────────────────────────────────────────────────────────────
+// Every request MUST carry the `x-vf-secret` header or a signed session cookie,
+// checked by withAuth (lib/require-auth.js). Anything else is refused before
+// any other work happens, and the
 // admin Fish Audio key (process.env.FISH_AUDIO_API_KEY) is used ONLY after that check passes.
 //
 // This function previously read `session.isAdmin` straight out of the request
 // body to decide whether to use FISH_AUDIO_API_KEY, so anyone who knew the URL could POST
 // {"session":{"isAdmin":true}} and spend the Fish Audio balance. Nothing in the body
-// may ever grant the admin path again — auth comes from the header alone.
-//
-// NOTE: the Studio web UI does NOT send this header, so it cannot call this
-// function as-is. If the UI is ever brought back, add
-// `"x-vf-secret": <VF_API_SECRET>` to the fetch headers in src/lib/api.js.
-function isAuthorized(event) {
-  const expected = process.env.VF_API_SECRET;
-  const provided = event.headers?.["x-vf-secret"];
-  if (!expected || typeof provided !== "string") return false;
+// may ever grant the admin path again — auth comes from lib/require-auth.js alone.
+const { withAuth } = require("./lib/require-auth");
 
-  const a = Buffer.from(expected, "utf8");
-  const b = Buffer.from(provided, "utf8");
-  if (a.length !== b.length) return false;
-  return require("crypto").timingSafeEqual(a, b);
-}
-
-exports.handler = async (event) => {
+exports.handler = withAuth(async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, body: "" };
-
-  if (!isAuthorized(event)) {
-    return {
-      statusCode: 401,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Unauthorized" }),
-    };
-  }
 
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method not allowed" };
 
@@ -64,7 +44,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "Missing required fields: jobId, imageUrls, enScript" }) };
   }
 
-  // Caller proved they hold VF_API_SECRET, so the admin key is the only key.
+  // Caller passed withAuth, so the admin key is the only key.
   const fishKey = process.env.FISH_AUDIO_API_KEY;
   if (!fishKey) {
     return { statusCode: 500, body: JSON.stringify({ error: "FISH_AUDIO_API_KEY not configured" }) };
@@ -122,7 +102,7 @@ exports.handler = async (event) => {
     console.error("Assembly error:", err.message);
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
-};
+});
 
 async function generateVoiceover(script, voiceId, apiKey, outputPath) {
   const res = await fetch(FISH_AUDIO_API, {

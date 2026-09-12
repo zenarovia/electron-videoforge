@@ -497,8 +497,10 @@ const scriptOf = (words) => Array.from({ length: words }, () => "word").join(" "
   {
     const code = fs.readFileSync(SUBMIT_IMAGES, "utf8").split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
     check("no isAdmin in submit-images.js", !/isAdmin/.test(code));
-    check("timingSafeEqual still used", /timingSafeEqual/.test(code));
-    check("guard is the first statement in the handler", /handler = async \(event\) => \{\s*if \(!isAuthorized\(event\)\)/.test(code));
+    const guardFile = path.join(FUNCTIONS_DIR, "lib", "require-auth.js");
+    const guard = fs.existsSync(guardFile) ? fs.readFileSync(guardFile, "utf8") : "";
+    check("shared guard still uses timingSafeEqual", /timingSafeEqual/.test(guard));
+    check("guard runs before the handler body", /exports\.handler = withAuth\(async \(event\) => \{/.test(code));
   }
 
   // ─── 12. prompts.js asks Claude for the derived number of scenes ───────────
